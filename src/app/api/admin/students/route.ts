@@ -57,6 +57,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: message }, { status })
   }
 
+  if (Array.isArray(signup.user.identities) && signup.user.identities.length === 0) {
+    return NextResponse.json({ error: 'A student account already exists for this email address.' }, { status: 409 })
+  }
+
   const { error: profileError } = await adminSupabase
     .from('profiles')
     .update({
