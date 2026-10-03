@@ -11,7 +11,7 @@ function generatePassword() {
 }
 
 export function AdminStudentCreator() {
-  const [password, setPassword] = useState(() => '')
+  const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
@@ -44,8 +44,9 @@ export function AdminStudentCreator() {
       return
     }
 
-    setSuccess(`Student created for ${payload.email}. A verification email has been requested. Share the temporary password securely.`)
+    setSuccess(`Student created for ${payload.email}. The account is active immediately; share the password securely.`)
     ;(event.currentTarget as HTMLFormElement).reset()
+    setPassword('')
     setBusy(false)
   }
 
@@ -58,13 +59,9 @@ export function AdminStudentCreator() {
   return (
     <form className="card form admin-create-student" onSubmit={submit}>
       <div className="section-title-row">
-        <div>
-          <div className="eyebrow">Student access</div>
-          <h3>Create student account</h3>
-        </div>
+        <div><div className="eyebrow">Student access</div><h3>Create student account</h3></div>
         <span className="badge">Student only</span>
       </div>
-
       <div className="grid grid-2">
         <div className="field">
           <label htmlFor="student-name">Student name</label>
@@ -75,46 +72,21 @@ export function AdminStudentCreator() {
           <input className="input" id="student-email" name="email" type="email" autoComplete="off" required />
         </div>
       </div>
-
       <div className="field">
         <label htmlFor="student-password">Temporary password</label>
         <div className="credential-row">
-          <input
-            className="input code-input"
-            id="student-password"
-            name="temporaryPassword"
-            value={password}
-            onChange={(event) => {
-              setPassword(event.target.value)
-              setCopied(false)
-            }}
-            minLength={8}
-            maxLength={128}
-            autoComplete="new-password"
-            required
-          />
-          <button className="btn btn-secondary" type="button" onClick={() => {
-            setPassword(generatePassword())
-            setCopied(false)
-          }}>
-            Generate
-          </button>
-          <button className="btn btn-secondary" type="button" disabled={!password} onClick={() => void copyPassword()}>
-            {copied ? 'Copied' : 'Copy'}
-          </button>
+          <input className="input code-input" id="student-password" name="temporaryPassword" value={password}
+            onChange={(event) => { setPassword(event.target.value); setCopied(false) }}
+            minLength={8} maxLength={128} autoComplete="new-password" required />
+          <button className="btn btn-secondary" type="button" onClick={() => { setPassword(generatePassword()); setCopied(false) }}>Generate</button>
+          <button className="btn btn-secondary" type="button" disabled={!password} onClick={() => void copyPassword()}>{copied ? 'Copied' : 'Copy'}</button>
         </div>
-        <span className="field-hint">
-          The student must verify the invitation email before this password can be used to enter the portal.
-        </span>
+        <span className="field-hint">The account is ready to use immediately after creation; email confirmation is not required.</span>
       </div>
-
       {error && <div className="alert" role="status">{error}</div>}
       {success && <div className="success" role="status">{success}</div>}
-
       <div className="actions">
-        <button className="btn btn-primary" disabled={busy || password.length < 8}>
-          {busy ? 'Creating student…' : 'Create student'}
-        </button>
+        <button className="btn btn-primary" disabled={busy || password.length < 8}>{busy ? 'Creating student…' : 'Create student'}</button>
       </div>
     </form>
   )
