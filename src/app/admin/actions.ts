@@ -2,13 +2,22 @@
 
 import { revalidatePath } from 'next/cache'
 import { requireAdmin } from '@/lib/auth'
+import type { Database } from '@/lib/database.types'
+
+type ExamStatus = Database['public']['Enums']['exam_status']
+const allowedStatuses = new Set<ExamStatus>(['draft', 'published', 'archived'])
 
 export async function setExamStatus(formData: FormData) {
   const { supabase } = await requireAdmin()
   const examId = String(formData.get('examId') || '')
   const status = String(formData.get('status') || '')
-  if (!examId || !['draft', 'published', 'archived'].includes(status)) return
-  const { error } = await supabase.from('exams').update({ status, updated_at: new Date().toISOString() }).eq('id', examId)
+  if (!examId || !allowedStatuses.has(status as ExamStatus)) return
+
+  const { error } = await supabase
+    .from('exams')
+    .update({ status: status as ExamStatus, updated_at: new Date().toISOString() })
+    .eq('id', examId)
+
   if (error) throw new Error(error.message)
   revalidatePath('/admin')
   revalidatePath('/dashboard')
