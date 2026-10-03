@@ -50,6 +50,14 @@ export function LoginForm({
       return
     }
 
+    if (portal === 'student' && !data.user.email_confirmed_at) {
+      await supabase.auth.signOut()
+      setTone('error')
+      setMessage('Verify your email from the invitation message before signing in.')
+      setBusy(false)
+      return
+    }
+
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
       .select('role,provisioned')
