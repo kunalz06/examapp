@@ -8,16 +8,8 @@ export default async function DashboardPage() {
   const { supabase, user, profile } = await requireStudent()
 
   const [{ data: exams }, { data: attempts }] = await Promise.all([
-    supabase
-      .from('exams')
-      .select('id,title,description,duration_minutes,starts_at,ends_at,status')
-      .eq('status', 'published')
-      .order('created_at', { ascending: false }),
-    supabase
-      .from('exam_attempts')
-      .select('id,exam_id,status,started_at,expires_at,violation_count,auto_score,manual_score,max_score')
-      .eq('user_id', user.id)
-      .order('started_at', { ascending: false }),
+    supabase.from('exams').select('id,title,description,duration_minutes,starts_at,ends_at,status').eq('status', 'published').order('created_at', { ascending: false }),
+    supabase.from('exam_attempts').select('id,exam_id,status,started_at,expires_at,violation_count,auto_score,manual_score,max_score').eq('user_id', user.id).order('started_at', { ascending: false }),
   ])
 
   const attemptByExam = new Map((attempts || []).map((attempt) => [attempt.exam_id, attempt]))
@@ -34,6 +26,7 @@ export default async function DashboardPage() {
             <h1 className="page-title">Welcome, {profile.display_name || user.email}</h1>
             <p className="muted">Your examinations, submissions, and released grades.</p>
           </div>
+          <Link className="btn btn-secondary" href="/account/password">Change password</Link>
         </div>
 
         <div className="grid grid-3 dashboard-stats">
@@ -43,10 +36,7 @@ export default async function DashboardPage() {
         </div>
 
         <section className="section">
-          <div className="section-title-row">
-            <div><div className="eyebrow">Available</div><h2 className="section-heading">Examinations</h2></div>
-          </div>
-
+          <div className="section-title-row"><div><div className="eyebrow">Available</div><h2 className="section-heading">Examinations</h2></div></div>
           <div className="grid grid-2 exam-card-grid">
             {(exams || []).map((exam) => {
               const attempt = attemptByExam.get(exam.id)
@@ -54,7 +44,6 @@ export default async function DashboardPage() {
               const endsAt = exam.ends_at ? new Date(exam.ends_at).getTime() : null
               const upcoming = startsAt !== null && now < startsAt
               const closed = endsAt !== null && now >= endsAt
-
               return (
                 <article className="card exam-card" key={exam.id}>
                   <div className="actions exam-card-meta">
@@ -63,17 +52,14 @@ export default async function DashboardPage() {
                     {!attempt && upcoming && <span className="badge black">Scheduled</span>}
                     {!attempt && closed && <span className="badge red">Closed</span>}
                   </div>
-
                   <h3>{exam.title}</h3>
                   {exam.description && <p className="muted">{exam.description}</p>}
-
                   {(exam.starts_at || exam.ends_at) && (
                     <dl className="exam-window">
                       {exam.starts_at && <div><dt>Starts</dt><dd>{new Date(exam.starts_at).toLocaleString('en-IN')}</dd></div>}
                       {exam.ends_at && <div><dt>Ends</dt><dd>{new Date(exam.ends_at).toLocaleString('en-IN')}</dd></div>}
                     </dl>
                   )}
-
                   <div className="actions exam-card-actions">
                     {!attempt && !upcoming && !closed && <Link className="btn btn-primary" href={`/exam/${exam.id}`}>Open exam</Link>}
                     {attempt?.status === 'in_progress' && <Link className="btn btn-primary" href={`/attempt/${attempt.id}`}>Resume attempt</Link>}
@@ -82,20 +68,12 @@ export default async function DashboardPage() {
                 </article>
               )
             })}
-
-            {!exams?.length && (
-              <div className="empty-state">
-                <h3>No exams available</h3>
-                <p className="muted">Published examinations will appear here.</p>
-              </div>
-            )}
+            {!exams?.length && <div className="empty-state"><h3>No exams available</h3><p className="muted">Published examinations will appear here.</p></div>}
           </div>
         </section>
 
         <section className="section">
-          <div className="section-title-row">
-            <div><div className="eyebrow">History</div><h2 className="section-heading">Attempts</h2></div>
-          </div>
+          <div className="section-title-row"><div><div className="eyebrow">History</div><h2 className="section-heading">Attempts</h2></div></div>
           <div className="table-wrap">
             <table>
               <thead><tr><th>Started</th><th>Status</th><th>Violations</th><th>Grade</th><th></th></tr></thead>

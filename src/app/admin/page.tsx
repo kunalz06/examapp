@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { LoginForm } from '@/components/LoginForm'
 import { AdminStudentCreator } from '@/components/AdminStudentCreator'
+import { AdminPasswordResetButton } from '@/components/AdminPasswordResetButton'
 import { setExamStatus } from '@/app/admin/actions'
 
 export const metadata: Metadata = { title: 'Admin' }
@@ -17,10 +18,7 @@ export default async function AdminPage() {
     return (
       <main className="admin-auth-page">
         <div className="admin-auth-panel">
-          <div className="admin-auth-brand">
-            <span className="brand-mark" aria-hidden />
-            <span>ExamCore Admin</span>
-          </div>
+          <div className="admin-auth-brand"><span className="brand-mark" aria-hidden /><span>ExamCore Admin</span></div>
           <div className="auth-card">
             <div className="eyebrow">Restricted access</div>
             <h1 className="auth-title">Administrator sign in</h1>
@@ -32,29 +30,13 @@ export default async function AdminPage() {
     )
   }
 
-  const { data: currentProfile } = await supabase
-    .from('profiles')
-    .select('role,display_name')
-    .eq('id', user.id)
-    .maybeSingle()
-
+  const { data: currentProfile } = await supabase.from('profiles').select('role,display_name').eq('id', user.id).maybeSingle()
   if (currentProfile?.role !== 'admin') redirect('/dashboard')
 
   const [{ data: profiles }, { data: exams }, { data: attempts }] = await Promise.all([
-    supabase
-      .from('profiles')
-      .select('id,email,display_name,role,provisioned,created_at')
-      .eq('role', 'student')
-      .order('created_at', { ascending: false }),
-    supabase
-      .from('exams')
-      .select('id,title,status,duration_minutes,created_at')
-      .order('created_at', { ascending: false }),
-    supabase
-      .from('exam_attempts')
-      .select('id,exam_id,user_id,status,started_at,submitted_at,violation_count,auto_score,manual_score,max_score')
-      .in('status', ['submitted', 'graded', 'disqualified'])
-      .order('started_at', { ascending: false }),
+    supabase.from('profiles').select('id,email,display_name,role,provisioned,email_verified,created_at').eq('role', 'student').order('created_at', { ascending: false }),
+    supabase.from('exams').select('id,title,status,duration_minutes,created_at').order('created_at', { ascending: false }),
+    supabase.from('exam_attempts').select('id,exam_id,user_id,status,started_at,submitted_at,violation_count,auto_score,manual_score,max_score').in('status', ['submitted', 'graded', 'disqualified']).order('started_at', { ascending: false }),
   ])
 
   const examMap = new Map((exams || []).map((exam) => [exam.id, exam.title]))
@@ -84,14 +66,10 @@ export default async function AdminPage() {
           <div className="stat"><b>{pending}</b><span className="small muted">awaiting grading</span></div>
         </div>
 
-        <section className="section" id="students">
-          <AdminStudentCreator />
-        </section>
+        <section className="section" id="students"><AdminStudentCreator /></section>
 
         <section className="section">
-          <div className="section-title-row">
-            <div><div className="eyebrow">Examinations</div><h3>Exam management</h3></div>
-          </div>
+          <div className="section-title-row"><div><div className="eyebrow">Examinations</div><h3>Exam management</h3></div></div>
           <div className="table-wrap">
             <table>
               <thead><tr><th>Exam</th><th>Duration</th><th>Status</th><th>Action</th></tr></thead>
@@ -105,9 +83,7 @@ export default async function AdminPage() {
                       <form action={setExamStatus} className="actions">
                         <input type="hidden" name="examId" value={exam.id} />
                         <select className="select compact-select" name="status" defaultValue={exam.status}>
-                          <option value="draft">Draft</option>
-                          <option value="published">Published</option>
-                          <option value="archived">Archived</option>
+                          <option value="draft">Draft</option><option value="published">Published</option><option value="archived">Archived</option>
                         </select>
                         <button className="btn btn-secondary">Update</button>
                       </form>
@@ -146,22 +122,22 @@ export default async function AdminPage() {
         </section>
 
         <section className="section">
-          <div className="section-title-row">
-            <div><div className="eyebrow">Directory</div><h3>Students</h3></div>
-          </div>
+          <div className="section-title-row"><div><div className="eyebrow">Directory</div><h3>Students</h3></div></div>
           <div className="table-wrap">
             <table>
-              <thead><tr><th>Name</th><th>Email</th><th>Access</th><th>Created</th></tr></thead>
+              <thead><tr><th>Name</th><th>Email</th><th>Verification</th><th>Access</th><th>Created</th><th>Recovery</th></tr></thead>
               <tbody>
                 {(profiles || []).map((profile) => (
                   <tr key={profile.id}>
                     <td><strong>{profile.display_name || 'Student'}</strong></td>
                     <td>{profile.email || '—'}</td>
+                    <td><span className={profile.email_verified ? 'badge' : 'badge red'}>{profile.email_verified ? 'Verified' : 'Pending'}</span></td>
                     <td><span className={profile.provisioned ? 'badge' : 'badge red'}>{profile.provisioned ? 'Provisioned' : 'Blocked'}</span></td>
                     <td>{new Date(profile.created_at).toLocaleString('en-IN')}</td>
+                    <td><AdminPasswordResetButton studentId={profile.id} /></td>
                   </tr>
                 ))}
-                {!profiles?.length && <tr><td colSpan={4} className="muted">No student accounts yet.</td></tr>}
+                {!profiles?.length && <tr><td colSpan={6} className="muted">No student accounts yet.</td></tr>}
               </tbody>
             </table>
           </div>

@@ -4,9 +4,9 @@ export type Database = {
   public: {
     Tables: {
       profiles: {
-        Row: { id: string; email: string | null; display_name: string | null; role: Database['public']['Enums']['app_role']; provisioned: boolean; created_at: string }
-        Insert: { id: string; email?: string | null; display_name?: string | null; role?: Database['public']['Enums']['app_role']; provisioned?: boolean; created_at?: string }
-        Update: { id?: string; email?: string | null; display_name?: string | null; role?: Database['public']['Enums']['app_role']; provisioned?: boolean; created_at?: string }
+        Row: { id: string; email: string | null; display_name: string | null; role: Database['public']['Enums']['app_role']; provisioned: boolean; email_verified: boolean; email_verified_at: string | null; created_at: string }
+        Insert: { id: string; email?: string | null; display_name?: string | null; role?: Database['public']['Enums']['app_role']; provisioned?: boolean; email_verified?: boolean; email_verified_at?: string | null; created_at?: string }
+        Update: { id?: string; email?: string | null; display_name?: string | null; role?: Database['public']['Enums']['app_role']; provisioned?: boolean; email_verified?: boolean; email_verified_at?: string | null; created_at?: string }
         Relationships: []
       }
       exams: {
@@ -71,9 +71,13 @@ export type Database = {
       admin_create_exam: { Args: { p_payload: Json }; Returns: string }
       admin_grade_answer: { Args: { p_attempt_id: string; p_question_id: string; p_score: number; p_feedback?: string }; Returns: Database['public']['Tables']['answers']['Row'] }
       finalize_attempt: { Args: { p_attempt_id: string; p_answers?: Json }; Returns: Database['public']['Tables']['exam_attempts']['Row'] }
+      finish_student_password_change: { Args: { p_reservation_id: string; p_success: boolean }; Returns: undefined }
       get_attempt_grade: { Args: { p_attempt_id: string }; Returns: Json }
+      get_student_email_verification_status: { Args: Record<PropertyKey, never>; Returns: Json }
+      reserve_student_password_change: { Args: Record<PropertyKey, never>; Returns: Json }
       save_attempt_answer: { Args: { p_attempt_id: string; p_question_id: string; p_selected_option_id?: string | null; p_text_answer?: string | null }; Returns: Database['public']['Tables']['answers']['Row'] }
       submit_attempt: { Args: { p_attempt_id: string }; Returns: Database['public']['Tables']['exam_attempts']['Row'] }
+      verify_student_email_otp: { Args: { p_code: string }; Returns: Json }
     }
     Enums: {
       app_role: 'student' | 'admin'
