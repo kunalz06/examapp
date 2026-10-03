@@ -17,6 +17,9 @@ export function LoginForm({
 }) {
   const router = useRouter()
   const [busy, setBusy] = useState(false)
+  const [resending, setResending] = useState(false)
+  const [lastEmail, setLastEmail] = useState('')
+  const [showResend, setShowResend] = useState(false)
   const [message, setMessage] = useState(initialMessage)
   const [tone, setTone] = useState<'error' | 'success'>(verified ? 'success' : 'error')
 
@@ -28,24 +31,44 @@ export function LoginForm({
     setMessage('Email verified. Sign in with the credentials issued by your administrator.')
   }, [verified])
 
+  async function resendVerification() {
+    if (!lastEmail || resending) return
+    setResending(true)
+
+    await fetch('/api/auth/resend-verification', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: lastEmail }),
+    }).catch(() => null)
+
+    setTone('success')
+    setMessage('If this student account exists, a new verification link has been sent.')
+    setResending(false)
+  }
+
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setBusy(true)
     setMessage('')
+    setShowResend(false)
 
     const form = new FormData(event.currentTarget)
     const email = String(form.get('email') || '').trim()
     const password = String(form.get('password') || '')
-    const supabase = createClient()
+    setLastEmail(email)
 
+    const supabase = createClient()
     const { data, error } = await supabase.auth.signInWithPassword({ email, password })
+
     if (error || !data.user) {
+      const needsConfirmation = /confirm|verified/i.test(error?.message || '')
       setTone('error')
       setMessage(
-        /confirm/i.test(error?.message || '')
-          ? 'Verify your email from the invitation message before signing in.'
+        needsConfirmation
+          ? 'Verify your email before signing in.'
           : 'The email or password is incorrect.'
       )
+      setShowResend(portal === 'student' && needsConfirmation)
       setBusy(false)
       return
     }
@@ -53,7 +76,8 @@ export function LoginForm({
     if (portal === 'student' && !data.user.email_confirmed_at) {
       await supabase.auth.signOut()
       setTone('error')
-      setMessage('Verify your email from the invitation message before signing in.')
+      setMessage('Verify your email before signing in.')
+      setShowResend(true)
       setBusy(false)
       return
     }
@@ -115,6 +139,17 @@ export function LoginForm({
         <div className={tone === 'success' ? 'success' : 'alert'} role="status">
           {message}
         </div>
+      )}
+
+      {showResend && portal === 'student' && (
+        <button
+          className="btn btn-secondary btn-block"
+          type="button"
+          disabled={resending}
+          onClick={() => void resendVerification()}
+        >
+          {resending ? 'Sending…' : 'Send new verification link'}
+        </button>
       )}
 
       <button className="btn btn-primary btn-block" disabled={busy}>
