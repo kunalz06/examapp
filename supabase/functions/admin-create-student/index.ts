@@ -1,7 +1,9 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.117.2";
+import nodemailer from "npm:nodemailer@10.0.13";
 
 type Payload = { email?: string; displayName?: string; temporaryPassword?: string };
+type SmtpConfig = { host: string; port: number; secure: boolean; username: string; password: string; from: string };
 
 function json(body: Record<string, unknown>, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -19,6 +21,68 @@ function readNamedKey(name: string): string | null {
   } catch {
     return null;
   }
+}
+
+function fiveDigitCode() {
+  const bytes = new Uint32Array(1);
+  crypto.getRandomValues(bytes);
+  return String(bytes[0] % 100000).padStart(5, "0");
+}
+
+function escapeHtml(value: string) {
+  return value.replace(/[&<>"']/g, (char) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;",
+  }[char] ?? char));
+}
+
+async function smtpConfig(adminClient: ReturnType<typeof createClient>): Promise<SmtpConfig> {
+  const { data, error } = await adminClient.rpc("get_smtp_runtime_config");
+  if (error || !data) throw new Error("SMTP configuration unavailable");
+  return data as SmtpConfig;
+}
+
+async function sendWelcomeEmail(config: SmtpConfig, to: string, name: string, password: string, otp: string) {
+  const transport = nodemailer.createTransport({
+    host: config.host,
+    port: Number(config.port),
+    secure: Boolean(config.secure),
+    auth: { user: config.username, pass: config.password },
+  });
+
+  const safeName = escapeHtml(name);
+  const safePassword = escapeHtml(password);
+  const safeOtp = escapeHtml(otp);
+
+  await transport.sendMail({
+    from: `ExamCore <${config.from}>`,
+    to,
+    subject: "Your ExamCore student account",
+    text: `Hello ${name},
+
+Your ExamCore student account has been created.
+
+Email: ${to}
+Temporary password: ${password}
+Email verification code: ${otp}
+
+The verification code expires in 5 minutes. A maximum of two verification emails may be sent in a 5-minute window, with at least 2.5 minutes between sends.
+
+Sign in at https://examapp-seven.vercel.app/login and enter the verification code when prompted.
+
+For security, change your temporary password after signing in.`,
+    html: `<div style="font-family:Arial,sans-serif;line-height:1.6;color:#111">
+      <h2>ExamCore student account</h2>
+      <p>Hello ${safeName},</p>
+      <p>Your student account has been created.</p>
+      <p><strong>Email:</strong> ${escapeHtml(to)}<br>
+      <strong>Temporary password:</strong> <code>${safePassword}</code></p>
+      <p>Your 5-digit email verification code is:</p>
+      <div style="font-size:30px;font-weight:700;letter-spacing:8px;margin:18px 0">${safeOtp}</div>
+      <p>This code expires in 5 minutes. Verification emails are limited to two per 5 minutes, with a minimum 2.5-minute gap.</p>
+      <p>Sign in at <strong>examapp-seven.vercel.app/login</strong> and enter this code when prompted.</p>
+      <p>For security, change the temporary password after signing in.</p>
+    </div>`,
+  });
 }
 
 Deno.serve(async (req: Request) => {
@@ -76,19 +140,50 @@ Deno.serve(async (req: Request) => {
     return json({ error: message }, /already|registered|exists/i.test(message) ? 409 : 400);
   }
 
+  const studentId = created.user.id;
   const { error: profileError } = await adminClient
     .from("profiles")
-    .update({ email, display_name: displayName, role: "student", provisioned: true })
-    .eq("id", created.user.id);
+    .update({
+      email,
+      display_name: displayName,
+      role: "student",
+      provisioned: true,
+      email_verified: false,
+      email_verified_at: null,
+    })
+    .eq("id", studentId);
 
   if (profileError) {
-    await adminClient.auth.admin.deleteUser(created.user.id);
+    await adminClient.auth.admin.deleteUser(studentId);
     return json({ error: "Student profile could not be provisioned." }, 500);
+  }
+
+  const otp = fiveDigitCode();
+  const { data: challenge, error: challengeError } = await adminClient.rpc("issue_student_email_otp", {
+    p_user_id: studentId,
+    p_code: otp,
+  });
+
+  if (challengeError || !challenge?.ok) {
+    await adminClient.auth.admin.deleteUser(studentId);
+    return json({ error: "Verification code could not be issued." }, 500);
+  }
+
+  try {
+    const config = await smtpConfig(adminClient);
+    await sendWelcomeEmail(config, email, displayName, temporaryPassword, otp);
+  } catch {
+    if (challenge.challengeId) {
+      await adminClient.rpc("cancel_student_email_otp", { p_challenge_id: challenge.challengeId });
+    }
+    await adminClient.auth.admin.deleteUser(studentId);
+    return json({ error: "Account email could not be delivered. The account was not created." }, 502);
   }
 
   return json({
     ok: true,
-    student: { id: created.user.id, email, displayName },
-    emailConfirmationRequired: false,
+    student: { id: studentId, email, displayName },
+    emailConfirmationRequired: true,
+    verificationRetryAfter: challenge.retryAfter ?? 150,
   }, 201);
 });

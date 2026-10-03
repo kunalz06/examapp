@@ -30,7 +30,7 @@ export function LoginForm({ portal = 'student', initialMessage = '' }: { portal?
 
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
-      .select('role,provisioned')
+      .select('role,provisioned,email_verified')
       .eq('id', data.user.id)
       .maybeSingle()
 
@@ -43,6 +43,12 @@ export function LoginForm({ portal = 'student', initialMessage = '' }: { portal?
         ? 'Administrator access is not available for this account.'
         : 'This account is not enabled for the student examination portal.')
       setBusy(false)
+      return
+    }
+
+    if (validStudent && !profile.email_verified) {
+      router.replace('/verify-email')
+      router.refresh()
       return
     }
 

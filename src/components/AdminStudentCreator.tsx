@@ -44,7 +44,7 @@ export function AdminStudentCreator() {
       return
     }
 
-    setSuccess(`Student created for ${payload.email}. The account is active immediately; share the password securely.`)
+    setSuccess(`Student created for ${payload.email}. Gmail SMTP sent the temporary password and 5-digit verification code.`)
     ;(event.currentTarget as HTMLFormElement).reset()
     setPassword('')
     setBusy(false)
@@ -81,7 +81,7 @@ export function AdminStudentCreator() {
           <button className="btn btn-secondary" type="button" onClick={() => { setPassword(generatePassword()); setCopied(false) }}>Generate</button>
           <button className="btn btn-secondary" type="button" disabled={!password} onClick={() => void copyPassword()}>{copied ? 'Copied' : 'Copy'}</button>
         </div>
-        <span className="field-hint">The account is ready to use immediately after creation; email confirmation is not required.</span>
+        <span className="field-hint">The student receives this temporary password and a 5-digit verification code by email.</span>
       </div>
       {error && <div className="alert" role="status">{error}</div>}
       {success && <div className="success" role="status">{success}</div>}

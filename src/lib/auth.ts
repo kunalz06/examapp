@@ -12,7 +12,7 @@ export async function requireStudent() {
   const { supabase, user } = await requireUser()
   const { data: profile } = await supabase
     .from('profiles')
-    .select('role, display_name, provisioned')
+    .select('role, display_name, provisioned, email_verified')
     .eq('id', user.id)
     .maybeSingle()
 
@@ -20,6 +20,7 @@ export async function requireStudent() {
   if (profile?.role !== 'student' || !profile.provisioned) {
     redirect('/login?error=account_unavailable')
   }
+  if (!profile.email_verified) redirect('/verify-email')
 
   return { supabase, user, profile }
 }
