@@ -1,19 +1,35 @@
 import Link from 'next/link'
-import { requireAdmin } from '@/lib/auth'
+import { createClient } from '@/lib/supabase/server'
+import { SignOutButton } from '@/components/SignOutButton'
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
-  await requireAdmin()
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+
+  let isAdmin = false
+  if (user) {
+    const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).maybeSingle()
+    isAdmin = profile?.role === 'admin'
+  }
+
   return (
-    <>
-      <div style={{ background: '#111', color: '#fff', borderBottom: '4px solid #1457d9' }}>
-        <div className="container actions" style={{ minHeight: 52 }}>
-          <strong>Admin</strong>
-          <Link href="/admin">Overview</Link>
-          <Link href="/admin/exams/new">Create exam</Link>
-          <Link href="/dashboard">Student view</Link>
-        </div>
-      </div>
+    <div className="admin-root">
+      {isAdmin && (
+        <header className="admin-header">
+          <div className="container admin-nav">
+            <Link href="/admin" className="admin-brand">
+              <span className="brand-mark" aria-hidden />
+              <span>ExamCore Admin</span>
+            </Link>
+            <nav className="admin-links" aria-label="Admin navigation">
+              <Link href="/admin">Overview</Link>
+              <Link href="/admin/exams/new">Create exam</Link>
+              <SignOutButton redirectTo="/admin" />
+            </nav>
+          </div>
+        </header>
+      )}
       {children}
-    </>
+    </div>
   )
 }

@@ -4,38 +4,48 @@ export default function HomePage() {
   return (
     <main>
       <section className="container hero">
-        <div>
-          <div className="eyebrow">Web examination platform</div>
-          <h1>Exams that are simple to run and clear to audit.</h1>
+        <div className="hero-copy">
+          <div className="eyebrow">Examination portal</div>
+          <h1>Secure access to your scheduled examinations.</h1>
           <p className="lead">
-            Students take timed exams in a focused interface. Administrators publish exams, view candidates,
-            review attempts, and grade written responses from one dashboard.
+            Sign in with the credentials issued by your administrator. Your email must be verified before first access.
           </p>
-          <div className="actions" style={{ marginTop: 26 }}>
-            <Link className="btn btn-primary" href="/login">Get started</Link>
-            <Link className="btn btn-secondary" href="/privacy">Read privacy policy</Link>
+          <div className="actions hero-actions">
+            <Link className="btn btn-primary btn-lg" href="/login">Student sign in</Link>
+            <Link className="btn btn-secondary btn-lg" href="/privacy">Privacy policy</Link>
           </div>
         </div>
-        <aside className="hero-card">
-          <span className="badge black">Exam controls</span>
-          <h2 style={{ marginTop: 18 }}>Three-strike tab policy</h2>
-          <p className="muted">
-            During an active exam, camera and microphone access are required. Leaving the exam tab is logged.
-            The third confirmed tab-hide event disqualifies the attempt server-side.
-          </p>
-          <div className="divider" />
-          <div className="grid grid-2">
-            <div className="stat"><b>3</b><span className="muted small">tab violations</span></div>
-            <div className="stat"><b>2</b><span className="muted small">roles: student/admin</span></div>
+
+        <aside className="portal-card" aria-label="Exam requirements">
+          <div className="portal-card-head">
+            <span className="status-dot" aria-hidden />
+            <span>Before an exam</span>
+          </div>
+          <div className="requirement-list">
+            <div><b>Verified account</b><span>Email verification is required once.</span></div>
+            <div><b>Camera and microphone</b><span>Both must remain available during the attempt.</span></div>
+            <div><b>Focused browser session</b><span>Leaving the exam tab is recorded as a violation.</span></div>
+            <div><b>Stable connection</b><span>Answers are saved throughout the exam.</span></div>
           </div>
         </aside>
       </section>
-      <section className="container section">
-        <div className="grid grid-3">
-          <div className="card"><h3>Focused exam UX</h3><p className="muted">Timed questions, autosave, visible proctoring status, and a clear submit flow.</p></div>
-          <div className="card"><h3>Admin grading</h3><p className="muted">Automatic MCQ scoring plus manual marking and feedback for written answers.</p></div>
-          <div className="card"><h3>Privacy by design</h3><p className="muted">The starter requires camera/mic presence but does not record or upload media streams.</p></div>
-        </div>
+
+      <section className="container portal-summary" aria-label="Portal features">
+        <article>
+          <span className="summary-index">01</span>
+          <h3>Assigned exams</h3>
+          <p>View available examinations and their time limits from one dashboard.</p>
+        </article>
+        <article>
+          <span className="summary-index">02</span>
+          <h3>Controlled attempts</h3>
+          <p>Camera, microphone, timing, autosave, and tab-violation checks run during the session.</p>
+        </article>
+        <article>
+          <span className="summary-index">03</span>
+          <h3>Clear outcomes</h3>
+          <p>See submission status and results after an attempt has been completed or graded.</p>
+        </article>
       </section>
     </main>
   )

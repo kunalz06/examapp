@@ -1,6 +1,6 @@
 import type { Metadata } from 'next'
 import { notFound, redirect } from 'next/navigation'
-import { requireUser } from '@/lib/auth'
+import { requireStudent } from '@/lib/auth'
 import { ExamRunner } from '@/components/ExamRunner'
 import type { Question } from '@/lib/types'
 
@@ -9,9 +9,9 @@ export const dynamic = 'force-dynamic'
 
 export default async function AttemptPage({ params }: { params: Promise<{ attemptId: string }> }) {
   const { attemptId } = await params
-  const { supabase, user } = await requireUser()
+  const { supabase, user } = await requireStudent()
 
-  const { data: attempt } = await supabase
+  let { data: attempt } = await supabase
     .from('exam_attempts')
     .select('id,exam_id,user_id,status,expires_at,violation_count')
     .eq('id', attemptId)
@@ -19,6 +19,18 @@ export default async function AttemptPage({ params }: { params: Promise<{ attemp
     .single()
 
   if (!attempt) notFound()
+
+  if (attempt.status === 'in_progress' && new Date(attempt.expires_at).getTime() <= Date.now()) {
+    await supabase.rpc('submit_attempt', { p_attempt_id: attempt.id })
+    const { data: refreshed } = await supabase
+      .from('exam_attempts')
+      .select('id,exam_id,user_id,status,expires_at,violation_count')
+      .eq('id', attemptId)
+      .eq('user_id', user.id)
+      .single()
+    attempt = refreshed ?? attempt
+  }
+
   if (attempt.status !== 'in_progress') redirect(`/attempt/${attempt.id}/result`)
 
   const [{ data: exam }, { data: questions }, { data: answers }] = await Promise.all([
@@ -33,15 +45,15 @@ export default async function AttemptPage({ params }: { params: Promise<{ attemp
 
   if (!exam || !questions) notFound()
 
-  const normalized = questions.map((q) => ({
-    ...q,
-    points: Number(q.points),
-    question_options: [...(q.question_options || [])].sort((a, b) => a.position - b.position),
+  const normalized = questions.map((question) => ({
+    ...question,
+    points: Number(question.points),
+    question_options: [...(question.question_options || [])].sort((a, b) => a.position - b.position),
   })) as Question[]
 
   return (
-    <main>
-      <div className="container">
+    <main className="exam-page">
+      <div className="container exam-container">
         <ExamRunner
           attemptId={attempt.id}
           examTitle={exam.title}

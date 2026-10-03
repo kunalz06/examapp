@@ -4,9 +4,9 @@ export type Database = {
   public: {
     Tables: {
       profiles: {
-        Row: { id: string; display_name: string | null; role: Database['public']['Enums']['app_role']; created_at: string }
-        Insert: { id: string; display_name?: string | null; role?: Database['public']['Enums']['app_role']; created_at?: string }
-        Update: { id?: string; display_name?: string | null; role?: Database['public']['Enums']['app_role']; created_at?: string }
+        Row: { id: string; email: string | null; display_name: string | null; role: Database['public']['Enums']['app_role']; provisioned: boolean; created_at: string }
+        Insert: { id: string; email?: string | null; display_name?: string | null; role?: Database['public']['Enums']['app_role']; provisioned?: boolean; created_at?: string }
+        Update: { id?: string; email?: string | null; display_name?: string | null; role?: Database['public']['Enums']['app_role']; provisioned?: boolean; created_at?: string }
         Relationships: []
       }
       exams: {

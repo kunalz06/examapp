@@ -1,14 +1,14 @@
 import type { Metadata } from 'next'
 import { notFound, redirect } from 'next/navigation'
 import Link from 'next/link'
-import { requireUser } from '@/lib/auth'
+import { requireStudent } from '@/lib/auth'
 
 export const metadata: Metadata = { title: 'Exam result' }
 export const dynamic = 'force-dynamic'
 
 export default async function ResultPage({ params }: { params: Promise<{ attemptId: string }> }) {
   const { attemptId } = await params
-  const { supabase, user } = await requireUser()
+  const { supabase, user } = await requireStudent()
 
   const { data: attempt } = await supabase
     .from('exam_attempts')
@@ -22,19 +22,18 @@ export default async function ResultPage({ params }: { params: Promise<{ attempt
 
   const { data: exam } = await supabase.from('exams').select('title').eq('id', attempt.exam_id).single()
   const totalPossible = Number(attempt.max_score)
-  const hasWritten = attempt.requires_manual_grading
   const totalScore = Number(attempt.auto_score) + Number(attempt.manual_score)
 
   return (
     <main>
-      <div className="container" style={{ maxWidth: 820 }}>
-        <div className="card">
+      <div className="container narrow">
+        <div className="card result-card">
           <span className={attempt.status === 'disqualified' ? 'badge red' : 'badge'}>{attempt.status}</span>
-          <h2 style={{ marginTop: 14 }}>{exam?.title || 'Exam result'}</h2>
+          <h1 className="page-title">{exam?.title || 'Exam result'}</h1>
 
           {attempt.status === 'disqualified' ? (
             <div className="alert">
-              <strong>Attempt disqualified.</strong> The server recorded {attempt.violation_count} tab-switch violation{attempt.violation_count === 1 ? '' : 's'}. Under the exam rules, the third confirmed violation disqualifies the attempt.
+              <strong>Attempt disqualified.</strong> Three tab-switch violations were confirmed for this attempt.
             </div>
           ) : (
             <>
@@ -43,14 +42,14 @@ export default async function ResultPage({ params }: { params: Promise<{ attempt
                 <div className="stat"><b>{totalPossible}</b><span className="small muted">maximum points</span></div>
                 <div className="stat"><b>{attempt.violation_count}</b><span className="small muted">tab violations</span></div>
               </div>
-              {attempt.status === 'submitted' && hasWritten && (
-                <div className="notice section">Written answers are awaiting administrator grading. Your displayed score can increase after marking.</div>
+              {attempt.status === 'submitted' && attempt.requires_manual_grading && (
+                <div className="notice section">Written responses are awaiting grading. The score will update after marking.</div>
               )}
-              {attempt.status === 'graded' && <div className="notice section">All written responses have been graded.</div>}
+              {attempt.status === 'graded' && <div className="success section">Grading is complete.</div>}
             </>
           )}
 
-          <div className="actions section"><Link className="btn btn-primary" href="/dashboard">Back to dashboard</Link></div>
+          <div className="actions section"><Link className="btn btn-primary" href="/dashboard">Back to my exams</Link></div>
         </div>
       </div>
     </main>

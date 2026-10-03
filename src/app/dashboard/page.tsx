@@ -1,70 +1,124 @@
 import Link from 'next/link'
 import type { Metadata } from 'next'
-import { requireUser } from '@/lib/auth'
+import { requireStudent } from '@/lib/auth'
 
-export const metadata: Metadata = { title: 'Dashboard' }
+export const metadata: Metadata = { title: 'My exams' }
 
 export default async function DashboardPage() {
-  const { supabase, user } = await requireUser()
+  const { supabase, user, profile } = await requireStudent()
 
-  const [{ data: profile }, { data: exams }, { data: attempts }] = await Promise.all([
-    supabase.from('profiles').select('display_name, role').eq('id', user.id).single(),
-    supabase.from('exams').select('id,title,description,duration_minutes,starts_at,ends_at,status').eq('status', 'published').order('created_at', { ascending: false }),
-    supabase.from('exam_attempts').select('id,exam_id,status,started_at,expires_at,violation_count,auto_score,manual_score').eq('user_id', user.id).order('started_at', { ascending: false }),
+  const [{ data: exams }, { data: attempts }] = await Promise.all([
+    supabase
+      .from('exams')
+      .select('id,title,description,duration_minutes,starts_at,ends_at,status')
+      .eq('status', 'published')
+      .order('created_at', { ascending: false }),
+    supabase
+      .from('exam_attempts')
+      .select('id,exam_id,status,started_at,expires_at,violation_count,auto_score,manual_score')
+      .eq('user_id', user.id)
+      .order('started_at', { ascending: false }),
   ])
 
-  const attemptByExam = new Map((attempts || []).map((a) => [a.exam_id, a]))
+  const attemptByExam = new Map((attempts || []).map((attempt) => [attempt.exam_id, attempt]))
+  const completedCount = (attempts || []).filter((attempt) => attempt.status !== 'in_progress').length
+  const activeCount = (attempts || []).filter((attempt) => attempt.status === 'in_progress').length
+  const now = Date.now()
 
   return (
     <main>
       <div className="container">
-        <div className="page-head">
+        <div className="page-head portal-dashboard-head">
           <div>
             <div className="eyebrow">Student dashboard</div>
-            <h2 style={{ marginTop: 8 }}>Welcome, {profile?.display_name || user.email}</h2>
-            <p className="muted">Choose an available exam or review your previous attempt.</p>
+            <h1 className="page-title">Welcome, {profile.display_name || user.email}</h1>
+            <p className="muted">Your examinations and attempt history.</p>
           </div>
-          {profile?.role === 'admin' && <Link className="btn btn-secondary" href="/admin">Open admin</Link>}
         </div>
 
-        <section>
-          <h3>Available exams</h3>
-          <div className="grid grid-2">
+        <div className="grid grid-3 dashboard-stats">
+          <div className="stat"><b>{exams?.length || 0}</b><span className="small muted">published exams</span></div>
+          <div className="stat"><b>{activeCount}</b><span className="small muted">active attempts</span></div>
+          <div className="stat"><b>{completedCount}</b><span className="small muted">completed attempts</span></div>
+        </div>
+
+        <section className="section">
+          <div className="section-title-row">
+            <div>
+              <div className="eyebrow">Available</div>
+              <h2 className="section-heading">Examinations</h2>
+            </div>
+          </div>
+
+          <div className="grid grid-2 exam-card-grid">
             {(exams || []).map((exam) => {
               const attempt = attemptByExam.get(exam.id)
+              const startsAt = exam.starts_at ? new Date(exam.starts_at).getTime() : null
+              const endsAt = exam.ends_at ? new Date(exam.ends_at).getTime() : null
+              const upcoming = startsAt !== null && now < startsAt
+              const closed = endsAt !== null && now >= endsAt
+
               return (
-                <article className="card" key={exam.id}>
-                  <div className="actions" style={{ justifyContent: 'space-between' }}>
+                <article className="card exam-card" key={exam.id}>
+                  <div className="actions exam-card-meta">
                     <span className="badge">{exam.duration_minutes} min</span>
                     {attempt && <span className={attempt.status === 'disqualified' ? 'badge red' : 'badge black'}>{attempt.status}</span>}
+                    {!attempt && upcoming && <span className="badge black">Scheduled</span>}
+                    {!attempt && closed && <span className="badge red">Closed</span>}
                   </div>
-                  <h3 style={{ marginTop: 18 }}>{exam.title}</h3>
-                  <p className="muted">{exam.description || 'No description provided.'}</p>
-                  <div className="actions">
-                    {!attempt && <Link className="btn btn-primary" href={`/exam/${exam.id}`}>View requirements</Link>}
-                    {attempt?.status === 'in_progress' && <Link className="btn btn-primary" href={`/attempt/${attempt.id}`}>Resume attempt</Link>}
-                    {attempt && attempt.status !== 'in_progress' && <Link className="btn btn-secondary" href={`/attempt/${attempt.id}/result`}>View result</Link>}
+
+                  <h3>{exam.title}</h3>
+                  {exam.description && <p className="muted">{exam.description}</p>}
+
+                  {(exam.starts_at || exam.ends_at) && (
+                    <dl className="exam-window">
+                      {exam.starts_at && <div><dt>Starts</dt><dd>{new Date(exam.starts_at).toLocaleString('en-IN')}</dd></div>}
+                      {exam.ends_at && <div><dt>Ends</dt><dd>{new Date(exam.ends_at).toLocaleString('en-IN')}</dd></div>}
+                    </dl>
+                  )}
+
+                  <div className="actions exam-card-actions">
+                    {!attempt && !upcoming && !closed && (
+                      <Link className="btn btn-primary" href={`/exam/${exam.id}`}>Open exam</Link>
+                    )}
+                    {attempt?.status === 'in_progress' && (
+                      <Link className="btn btn-primary" href={`/attempt/${attempt.id}`}>Resume attempt</Link>
+                    )}
+                    {attempt && attempt.status !== 'in_progress' && (
+                      <Link className="btn btn-secondary" href={`/attempt/${attempt.id}/result`}>View result</Link>
+                    )}
                   </div>
                 </article>
               )
             })}
-            {!exams?.length && <div className="card"><p className="muted">No exams are currently published.</p></div>}
+
+            {!exams?.length && (
+              <div className="empty-state">
+                <h3>No exams available</h3>
+                <p className="muted">Published examinations will appear here.</p>
+              </div>
+            )}
           </div>
         </section>
 
         <section className="section">
-          <h3>Attempt history</h3>
+          <div className="section-title-row">
+            <div>
+              <div className="eyebrow">History</div>
+              <h2 className="section-heading">Attempts</h2>
+            </div>
+          </div>
           <div className="table-wrap">
             <table>
               <thead><tr><th>Started</th><th>Status</th><th>Violations</th><th>Score</th><th></th></tr></thead>
               <tbody>
                 {(attempts || []).map((attempt) => (
                   <tr key={attempt.id}>
-                    <td>{new Date(attempt.started_at).toLocaleString()}</td>
+                    <td>{new Date(attempt.started_at).toLocaleString('en-IN')}</td>
                     <td><span className={attempt.status === 'disqualified' ? 'badge red' : 'badge'}>{attempt.status}</span></td>
                     <td>{attempt.violation_count}</td>
-                    <td>{Number(attempt.auto_score) + Number(attempt.manual_score)}</td>
-                    <td><Link href={attempt.status === 'in_progress' ? `/attempt/${attempt.id}` : `/attempt/${attempt.id}/result`}>Open</Link></td>
+                    <td>{attempt.status === 'in_progress' ? '—' : Number(attempt.auto_score) + Number(attempt.manual_score)}</td>
+                    <td><Link className="table-link" href={attempt.status === 'in_progress' ? `/attempt/${attempt.id}` : `/attempt/${attempt.id}/result`}>Open</Link></td>
                   </tr>
                 ))}
                 {!attempts?.length && <tr><td colSpan={5} className="muted">No attempts yet.</td></tr>}

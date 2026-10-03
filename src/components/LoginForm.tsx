@@ -1,56 +1,116 @@
 'use client'
 
-import { FormEvent, useState } from 'react'
+import { FormEvent, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 
-export function LoginForm() {
+type Portal = 'student' | 'admin'
+
+export function LoginForm({
+  portal = 'student',
+  verified = false,
+  initialMessage = '',
+}: {
+  portal?: Portal
+  verified?: boolean
+  initialMessage?: string
+}) {
   const router = useRouter()
-  const [mode, setMode] = useState<'signin' | 'signup'>('signin')
   const [busy, setBusy] = useState(false)
-  const [message, setMessage] = useState('')
+  const [message, setMessage] = useState(initialMessage)
+  const [tone, setTone] = useState<'error' | 'success'>(verified ? 'success' : 'error')
+
+  useEffect(() => {
+    if (!verified) return
+    const supabase = createClient()
+    void supabase.auth.signOut({ scope: 'local' })
+    setTone('success')
+    setMessage('Email verified. Sign in with the credentials issued by your administrator.')
+  }, [verified])
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setBusy(true)
     setMessage('')
+
     const form = new FormData(event.currentTarget)
     const email = String(form.get('email') || '').trim()
     const password = String(form.get('password') || '')
-    const displayName = String(form.get('displayName') || '').trim()
     const supabase = createClient()
 
-    const result = mode === 'signin'
-      ? await supabase.auth.signInWithPassword({ email, password })
-      : await supabase.auth.signUp({ email, password, options: { data: { display_name: displayName } } })
-
-    if (result.error) {
-      setMessage(result.error.message)
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password })
+    if (error || !data.user) {
+      setTone('error')
+      setMessage(
+        /confirm/i.test(error?.message || '')
+          ? 'Verify your email from the invitation message before signing in.'
+          : 'The email or password is incorrect.'
+      )
       setBusy(false)
       return
     }
 
-    if (mode === 'signup' && !result.data.session) {
-      setMessage('Account created. Check your email to confirm your address, then sign in.')
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('role,provisioned')
+      .eq('id', data.user.id)
+      .maybeSingle()
+
+    const validStudent = portal === 'student' && profile?.role === 'student' && profile.provisioned
+    const validAdmin = portal === 'admin' && profile?.role === 'admin'
+
+    if (profileError || (!validStudent && !validAdmin)) {
+      await supabase.auth.signOut()
+      setTone('error')
+      setMessage(
+        portal === 'admin'
+          ? 'Administrator access is not available for this account.'
+          : 'This account is not enabled for the student examination portal.'
+      )
       setBusy(false)
       return
     }
 
-    router.replace('/dashboard')
+    router.replace(portal === 'admin' ? '/admin' : '/dashboard')
     router.refresh()
   }
 
   return (
     <form className="form" onSubmit={submit}>
-      {mode === 'signup' && (
-        <div className="field"><label htmlFor="displayName">Name</label><input className="input" id="displayName" name="displayName" required /></div>
+      <div className="field">
+        <label htmlFor={`${portal}-email`}>Email address</label>
+        <input
+          className="input"
+          id={`${portal}-email`}
+          name="email"
+          type="email"
+          autoComplete="email"
+          placeholder="name@example.com"
+          required
+        />
+      </div>
+
+      <div className="field">
+        <label htmlFor={`${portal}-password`}>Password</label>
+        <input
+          className="input"
+          id={`${portal}-password`}
+          name="password"
+          type="password"
+          autoComplete="current-password"
+          minLength={8}
+          required
+        />
+      </div>
+
+      {message && (
+        <div className={tone === 'success' ? 'success' : 'alert'} role="status">
+          {message}
+        </div>
       )}
-      <div className="field"><label htmlFor="email">Email</label><input className="input" id="email" name="email" type="email" autoComplete="email" required /></div>
-      <div className="field"><label htmlFor="password">Password</label><input className="input" id="password" name="password" type="password" minLength={8} autoComplete={mode === 'signin' ? 'current-password' : 'new-password'} required /></div>
-      {message && <div className="alert" role="status">{message}</div>}
-      <button className="btn btn-primary" disabled={busy}>{busy ? 'Please wait…' : mode === 'signin' ? 'Sign in' : 'Create account'}</button>
-      <button className="btn btn-secondary" type="button" onClick={() => { setMode(mode === 'signin' ? 'signup' : 'signin'); setMessage('') }}>
-        {mode === 'signin' ? 'Create a student account' : 'I already have an account'}
+
+      <button className="btn btn-primary btn-block" disabled={busy}>
+        {busy ? 'Signing in…' : 'Sign in'}
       </button>
     </form>
   )

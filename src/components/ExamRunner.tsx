@@ -21,6 +21,8 @@ export function ExamRunner({ attemptId, examTitle, expiresAt, initialViolationCo
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const submittingRef = useRef(false)
+  const textSaveTimers = useRef<Record<string, number>>({})
+
   const [mediaReady, setMediaReady] = useState(false)
   const [mediaError, setMediaError] = useState('')
   const [connectionError, setConnectionError] = useState('')
@@ -30,7 +32,10 @@ export function ExamRunner({ attemptId, examTitle, expiresAt, initialViolationCo
   const [answers, setAnswers] = useState<Record<string, { selectedOptionId: string; text: string }>>(() => {
     const mapped: Record<string, { selectedOptionId: string; text: string }> = {}
     for (const answer of initialAnswers) {
-      mapped[answer.question_id] = { selectedOptionId: answer.selected_option_id || '', text: answer.text_answer || '' }
+      mapped[answer.question_id] = {
+        selectedOptionId: answer.selected_option_id || '',
+        text: answer.text_answer || '',
+      }
     }
     return mapped
   })
@@ -54,7 +59,7 @@ export function ExamRunner({ attemptId, examTitle, expiresAt, initialViolationCo
         router.replace(`/attempt/${attemptId}/result`)
       }
     } catch {
-      // Heartbeat is advisory; save requests surface connectivity issues separately.
+      // Save requests surface connectivity failures to the candidate.
     }
   }, [attemptId, router, stopMedia])
 
@@ -73,27 +78,35 @@ export function ExamRunner({ attemptId, examTitle, expiresAt, initialViolationCo
       setConnectionError('')
       return true
     } catch {
-      setConnectionError('Connection issue: proctoring event is queued and will retry when the page is active.')
+      setConnectionError('Connection interrupted. Exam events will retry automatically.')
       return false
     }
   }, [attemptId])
 
   const saveQueue = useCallback((events: PendingEvent[]) => {
-    try { localStorage.setItem(queueKey, JSON.stringify(events)) } catch { /* storage may be unavailable */ }
+    try {
+      localStorage.setItem(queueKey, JSON.stringify(events))
+    } catch {
+      // Storage may be unavailable in restrictive browser modes.
+    }
   }, [queueKey])
 
   const readQueue = useCallback((): PendingEvent[] => {
     try {
       const raw = localStorage.getItem(queueKey)
       return raw ? JSON.parse(raw) as PendingEvent[] : []
-    } catch { return [] }
+    } catch {
+      return []
+    }
   }, [queueKey])
 
   const queueEvent = useCallback(async (type: string, details: Record<string, unknown> = {}) => {
     const event: PendingEvent = { eventId: crypto.randomUUID(), type, details }
     const queue = [...readQueue(), event]
     saveQueue(queue)
+
     if (type === 'tab_hidden') setViolationCount((count) => Math.min(3, count + 1))
+
     const ok = await sendEvent(event)
     if (ok) saveQueue(readQueue().filter((item) => item.eventId !== event.eventId))
   }, [readQueue, saveQueue, sendEvent])
@@ -101,6 +114,7 @@ export function ExamRunner({ attemptId, examTitle, expiresAt, initialViolationCo
   const flushQueue = useCallback(async () => {
     const queue = readQueue()
     if (!queue.length) return
+
     const remaining: PendingEvent[] = []
     for (const event of queue) {
       const ok = await sendEvent(event)
@@ -113,16 +127,19 @@ export function ExamRunner({ attemptId, examTitle, expiresAt, initialViolationCo
   const startMedia = useCallback(async () => {
     setMediaError('')
     stopMedia()
+
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true })
       const videoTrack = stream.getVideoTracks()[0]
       const audioTrack = stream.getAudioTracks()[0]
       if (!videoTrack || !audioTrack) throw new Error('Both media tracks are required')
+
       streamRef.current = stream
       if (videoRef.current) videoRef.current.srcObject = stream
+
       const ended = () => {
         setMediaReady(false)
-        setMediaError('Camera or microphone access ended. Restore access to continue viewing the exam.')
+        setMediaError('Camera or microphone access ended. Restore access to continue.')
         void queueEvent('media_ended', { track: 'camera_or_microphone' })
       }
       videoTrack.addEventListener('ended', ended, { once: true })
@@ -135,7 +152,10 @@ export function ExamRunner({ attemptId, examTitle, expiresAt, initialViolationCo
     }
   }, [queueEvent, stopMedia])
 
-  const saveAnswer = useCallback(async (questionId: string, value: { selectedOptionId?: string; text?: string }) => {
+  const saveAnswer = useCallback(async (
+    questionId: string,
+    value: { selectedOptionId?: string; text?: string },
+  ) => {
     try {
       const response = await fetch(`/api/attempts/${attemptId}/answer`, {
         method: 'POST',
@@ -152,17 +172,33 @@ export function ExamRunner({ attemptId, examTitle, expiresAt, initialViolationCo
     }
   }, [attemptId])
 
+  const scheduleTextSave = useCallback((questionId: string, text: string) => {
+    const existing = textSaveTimers.current[questionId]
+    if (existing) window.clearTimeout(existing)
+
+    textSaveTimers.current[questionId] = window.setTimeout(() => {
+      void saveAnswer(questionId, { text })
+      delete textSaveTimers.current[questionId]
+    }, 700)
+  }, [saveAnswer])
+
   const submit = useCallback(async () => {
     if (submittingRef.current || status !== 'in_progress') return
     submittingRef.current = true
+    setConnectionError('')
+
     try {
-      // Persist the current in-memory values before the database freezes the attempt.
+      Object.values(textSaveTimers.current).forEach((timer) => window.clearTimeout(timer))
+      textSaveTimers.current = {}
+
       for (const question of questions) {
         const current = answers[question.id]
         if (!current) continue
+
         const payload = question.type === 'single_choice'
           ? { questionId: question.id, selectedOptionId: current.selectedOptionId }
           : { questionId: question.id, text: current.text }
+
         const saveResponse = await fetch(`/api/attempts/${attemptId}/answer`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -170,12 +206,15 @@ export function ExamRunner({ attemptId, examTitle, expiresAt, initialViolationCo
         })
         if (!saveResponse.ok) throw new Error('Could not save all answers. Check your connection and try again.')
       }
+
       await flushQueue()
+
       const response = await fetch(`/api/attempts/${attemptId}/submit`, { method: 'POST' })
       if (!response.ok) {
         const data = await response.json().catch(() => ({ error: 'Submission failed' }))
         throw new Error(data.error)
       }
+
       stopMedia()
       router.replace(`/attempt/${attemptId}/result`)
     } catch (error) {
@@ -187,6 +226,7 @@ export function ExamRunner({ attemptId, examTitle, expiresAt, initialViolationCo
   useEffect(() => {
     void startMedia()
     void flushQueue()
+
     const onVisibility = () => {
       if (document.visibilityState === 'hidden') {
         void queueEvent('tab_hidden', { at: new Date().toISOString() })
@@ -195,12 +235,16 @@ export function ExamRunner({ attemptId, examTitle, expiresAt, initialViolationCo
         void syncStatus()
       }
     }
+
     const onOnline = () => void flushQueue()
+
     document.addEventListener('visibilitychange', onVisibility)
     window.addEventListener('online', onOnline)
+
     return () => {
       document.removeEventListener('visibilitychange', onVisibility)
       window.removeEventListener('online', onOnline)
+      Object.values(textSaveTimers.current).forEach((timer) => window.clearTimeout(timer))
       stopMedia()
     }
   }, [flushQueue, queueEvent, startMedia, stopMedia, syncStatus])
@@ -211,6 +255,7 @@ export function ExamRunner({ attemptId, examTitle, expiresAt, initialViolationCo
       setSecondsLeft(remaining)
       if (remaining === 0) void submit()
     }, 1000)
+
     return () => window.clearInterval(timer)
   }, [expiresAt, submit])
 
@@ -222,34 +267,56 @@ export function ExamRunner({ attemptId, examTitle, expiresAt, initialViolationCo
   const time = `${String(Math.floor(secondsLeft / 60)).padStart(2, '0')}:${String(secondsLeft % 60).padStart(2, '0')}`
 
   if (status === 'disqualified') {
-    return <div className="blocking"><div><span className="badge red">Disqualified</span><h2 style={{ marginTop: 14 }}>This attempt has been disqualified.</h2><p className="muted">Three tab-switch violations were confirmed by the server.</p></div></div>
+    return (
+      <div className="blocking">
+        <div className="card blocking-card">
+          <span className="badge red">Disqualified</span>
+          <h2>This attempt has ended.</h2>
+          <p className="muted">Three tab-switch violations were confirmed.</p>
+        </div>
+      </div>
+    )
   }
 
   return (
     <div className="exam-shell">
       <section className="stack">
-        <div className="page-head">
-          <div><div className="eyebrow">Exam in progress</div><h2 style={{ marginTop: 8 }}>{examTitle}</h2></div>
+        <div className="exam-topbar">
+          <div>
+            <div className="eyebrow">Exam in progress</div>
+            <h1 className="exam-title">{examTitle}</h1>
+          </div>
+          <div className="mobile-timer" aria-label="Time remaining">{time}</div>
         </div>
+
         {!mediaReady && (
           <div className="alert">
-            <strong>Exam content is paused because media access is not active.</strong><br />{mediaError}
-            <div style={{ marginTop: 10 }}><button className="btn btn-danger" onClick={() => void startMedia()}>Restore camera & microphone</button></div>
+            <strong>Camera and microphone access is paused.</strong>
+            <span>{mediaError}</span>
+            <button className="btn btn-danger" onClick={() => void startMedia()}>Restore access</button>
           </div>
         )}
+
         {connectionError && <div className="alert">{connectionError}</div>}
-        <div style={{ visibility: mediaReady ? 'visible' : 'hidden', pointerEvents: mediaReady ? 'auto' : 'none' }} className="stack">
+
+        <div
+          className="stack"
+          style={{ visibility: mediaReady ? 'visible' : 'hidden', pointerEvents: mediaReady ? 'auto' : 'none' }}
+          aria-hidden={!mediaReady}
+        >
           {questions.map((question, index) => {
             const current = answers[question.id] || { selectedOptionId: '', text: '' }
+
             return (
               <article className="question" key={question.id}>
-                <div className="actions" style={{ justifyContent: 'space-between' }}>
-                  <span className="badge">Question {index + 1}</span>
+                <div className="actions question-meta">
+                  <span className="question-number">Question {index + 1}</span>
                   <span className="small muted">{question.points} point{question.points === 1 ? '' : 's'}</span>
                 </div>
-                <h3 style={{ marginTop: 16 }}>{question.prompt}</h3>
+                <h3>{question.prompt}</h3>
+
                 {question.type === 'single_choice' ? (
-                  <div>
+                  <div className="option-list">
                     {(question.question_options || []).map((option) => (
                       <label className="option" key={option.id}>
                         <input
@@ -258,7 +325,10 @@ export function ExamRunner({ attemptId, examTitle, expiresAt, initialViolationCo
                           value={option.id}
                           checked={current.selectedOptionId === option.id}
                           onChange={() => {
-                            setAnswers((all) => ({ ...all, [question.id]: { ...current, selectedOptionId: option.id } }))
+                            setAnswers((all) => ({
+                              ...all,
+                              [question.id]: { ...current, selectedOptionId: option.id },
+                            }))
                             void saveAnswer(question.id, { selectedOptionId: option.id })
                           }}
                         />
@@ -268,38 +338,50 @@ export function ExamRunner({ attemptId, examTitle, expiresAt, initialViolationCo
                   </div>
                 ) : (
                   <textarea
-                    className="textarea"
+                    className="textarea exam-textarea"
                     value={current.text}
-                    placeholder="Type your answer…"
-                    onChange={(event) => setAnswers((all) => ({ ...all, [question.id]: { ...current, text: event.target.value } }))}
+                    placeholder="Type your answer"
+                    onChange={(event) => {
+                      const text = event.target.value
+                      setAnswers((all) => ({ ...all, [question.id]: { ...current, text } }))
+                      scheduleTextSave(question.id, text)
+                    }}
                     onBlur={() => void saveAnswer(question.id, { text: (answers[question.id] || current).text })}
                   />
                 )}
               </article>
             )
           })}
-          <div className="card actions" style={{ justifyContent: 'space-between' }}>
-            <span className="muted small">Confirm your answers before final submission.</span>
-            <button className="btn btn-primary" onClick={() => void submit()}>Submit exam</button>
+
+          <div className="submit-bar">
+            <span className="muted small">Review your answers before submitting.</span>
+            <button className="btn btn-primary" disabled={submittingRef.current} onClick={() => void submit()}>
+              Submit exam
+            </button>
           </div>
         </div>
       </section>
 
       <aside className="exam-side stack">
-        <div className="card">
+        <div className="card timer-card">
           <div className="small muted">Time remaining</div>
           <div className="timer" aria-live="polite">{time}</div>
         </div>
-        <div className="card">
-          <div className="actions" style={{ justifyContent: 'space-between' }}><strong>Proctoring</strong><span className="badge">Live</span></div>
-          <video ref={videoRef} className="camera" autoPlay muted playsInline style={{ marginTop: 12 }} />
-          <p className="small muted">Camera and microphone must remain active. Media is not recorded by this starter.</p>
+
+        <div className="card proctor-card">
+          <div className="actions proctor-heading">
+            <strong>Exam monitor</strong>
+            <span className={mediaReady ? 'badge' : 'badge red'}>{mediaReady ? 'Active' : 'Paused'}</span>
+          </div>
+          <video ref={videoRef} className="camera" autoPlay muted playsInline />
           <div className="divider" />
           <div className="small muted">Tab violations</div>
-          <div className="violation-dots" aria-label={`${violationCount} of 3 violations`} style={{ marginTop: 8 }}>
-            {[0, 1, 2].map((index) => <span key={index} className={`violation-dot ${index < violationCount ? 'active' : ''}`} />)}
+          <div className="violation-dots" aria-label={`${violationCount} of 3 violations`}>
+            {[0, 1, 2].map((index) => (
+              <span key={index} className={`violation-dot ${index < violationCount ? 'active' : ''}`} />
+            ))}
           </div>
-          <p className="small muted">3 confirmed violations = automatic disqualification.</p>
+          <p className="small muted proctor-note">Three confirmed violations end the attempt.</p>
         </div>
       </aside>
     </div>
