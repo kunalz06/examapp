@@ -345,7 +345,7 @@ export function ExamRunner({ attemptId, examTitle, expiresAt, initialViolationCo
       submittingRef.current = false
       setSubmitting(false)
     }
-  }, [attemptId, clearPendingAnswers, flushEventQueue, questions, router, status, stopMedia])
+  }, [attemptId, clearPendingAnswers, flushEventQueue, questions, readPendingAnswers, router, status, stopMedia])
 
   useEffect(() => {
     const validIds = new Set(questions.map((question) => question.id))
