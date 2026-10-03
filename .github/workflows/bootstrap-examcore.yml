@@ -1,0 +1,42 @@
+name: Bootstrap ExamCore
+
+on:
+  push:
+    paths:
+      - '.github/workflows/bootstrap-examcore.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  unpack:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Reassemble source archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .bootstrap/payload.part* | base64 --decode > /tmp/examapp.zip
+          mkdir -p /tmp/examapp
+          unzip -q /tmp/examapp.zip -d /tmp/examapp
+          cp -a /tmp/examapp/exam-app/. .
+          rm -rf .bootstrap
+          rm -f .github/workflows/bootstrap-examcore.yml
+
+      - name: Commit source tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+          git commit -m "Add ExamCore Next.js application"
+          git push
