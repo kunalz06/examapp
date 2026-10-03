@@ -1,7 +1,16 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import type { Database, Json } from '@/lib/database.types'
 
-const allowedEvents = new Set(['tab_hidden', 'fullscreen_exit', 'media_ended', 'media_permission_denied', 'window_blur'])
+type ProctorEventType = Database['public']['Enums']['proctor_event_type']
+
+const allowedEvents = new Set<ProctorEventType>([
+  'tab_hidden',
+  'fullscreen_exit',
+  'media_ended',
+  'media_permission_denied',
+  'window_blur',
+])
 
 export async function POST(request: Request, { params }: { params: Promise<{ attemptId: string }> }) {
   const { attemptId } = await params
@@ -9,8 +18,13 @@ export async function POST(request: Request, { params }: { params: Promise<{ att
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const body = await request.json().catch(() => null) as { eventId?: string; type?: string; details?: Record<string, unknown> } | null
-  if (!body?.eventId || !body.type || !allowedEvents.has(body.type)) {
+  const body = await request.json().catch(() => null) as {
+    eventId?: string
+    type?: string
+    details?: Json
+  } | null
+
+  if (!body?.eventId || !body.type || !allowedEvents.has(body.type as ProctorEventType)) {
     return NextResponse.json({ error: 'Invalid proctoring event' }, { status: 400 })
   }
 
@@ -18,8 +32,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ att
     client_event_id: body.eventId,
     attempt_id: attemptId,
     user_id: user.id,
-    event_type: body.type,
-    details: body.details || {},
+    event_type: body.type as ProctorEventType,
+    details: body.details ?? {},
   }, { onConflict: 'client_event_id', ignoreDuplicates: true })
 
   if (error) return NextResponse.json({ error: error.message }, { status: 400 })
