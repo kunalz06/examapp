@@ -1,20 +1,17 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { createClient as createSupabaseClient } from '@supabase/supabase-js'
+import { requireAdmin } from '@/lib/auth'
+import type { Database } from '@/lib/database.types'
+
+function publicOrigin(request: Request) {
+  const forwardedHost = request.headers.get('x-forwarded-host') || request.headers.get('host')
+  const forwardedProto = request.headers.get('x-forwarded-proto') || 'https'
+  if (forwardedHost) return `${forwardedProto}://${forwardedHost}`
+  return 'https://examapp-seven.vercel.app'
+}
 
 export async function POST(request: Request) {
-  const supabase = await createClient()
-  const { data: { user }, error: userError } = await supabase.auth.getUser()
-  if (userError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('role')
-    .eq('id', user.id)
-    .maybeSingle()
-
-  if (profile?.role !== 'admin') {
-    return NextResponse.json({ error: 'Admin access required.' }, { status: 403 })
-  }
+  const { supabase: adminSupabase, user } = await requireAdmin()
 
   const body = await request.json().catch(() => null) as {
     displayName?: string
@@ -24,26 +21,63 @@ export async function POST(request: Request) {
 
   if (!body) return NextResponse.json({ error: 'Invalid request.' }, { status: 400 })
 
-  const { data: { session } } = await supabase.auth.getSession()
-  if (!session?.access_token) return NextResponse.json({ error: 'Session expired.' }, { status: 401 })
+  const displayName = String(body.displayName || '').trim()
+  const email = String(body.email || '').trim().toLowerCase()
+  const temporaryPassword = String(body.temporaryPassword || '')
 
-  const functionUrl = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/admin-create-student`
-  const response = await fetch(functionUrl, {
-    method: 'POST',
-    cache: 'no-store',
-    headers: {
-      Authorization: `Bearer ${session.access_token}`,
-      apikey: process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
-      'Content-Type': 'application/json',
+  if (displayName.length < 2 || displayName.length > 120) {
+    return NextResponse.json({ error: 'Student name must be between 2 and 120 characters.' }, { status: 400 })
+  }
+  if (!email || !email.includes('@') || email.length > 320) {
+    return NextResponse.json({ error: 'Enter a valid student email address.' }, { status: 400 })
+  }
+  if (temporaryPassword.length < 8 || temporaryPassword.length > 128) {
+    return NextResponse.json({ error: 'Temporary password must be between 8 and 128 characters.' }, { status: 400 })
+  }
+
+  const publicClient = createSupabaseClient<Database>(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
+    { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } },
+  )
+
+  const redirectTo = `${publicOrigin(request)}/login?verified=1`
+  const { data: signup, error: signupError } = await publicClient.auth.signUp({
+    email,
+    password: temporaryPassword,
+    options: {
+      emailRedirectTo: redirectTo,
+      data: { display_name: displayName },
     },
-    body: JSON.stringify({
-      displayName: body.displayName,
-      email: body.email,
-      temporaryPassword: body.temporaryPassword,
-      redirectOrigin: new URL(request.url).origin,
-    }),
   })
 
-  const payload = await response.json().catch(() => ({ error: 'Student account service returned an invalid response.' }))
-  return NextResponse.json(payload, { status: response.status })
+  if (signupError || !signup.user) {
+    const message = signupError?.message || 'Student account could not be created.'
+    const status = /already|registered|exists/i.test(message) ? 409 : 400
+    return NextResponse.json({ error: message }, { status })
+  }
+
+  const { error: profileError } = await adminSupabase
+    .from('profiles')
+    .update({
+      email,
+      display_name: displayName,
+      role: 'student',
+      provisioned: true,
+    })
+    .eq('id', signup.user.id)
+
+  if (profileError) {
+    return NextResponse.json(
+      { error: 'Student account was created, but portal access could not be provisioned. Contact the administrator.' },
+      { status: 500 },
+    )
+  }
+
+  return NextResponse.json({
+    ok: true,
+    student: { id: signup.user.id, email, displayName },
+    verificationSent: true,
+    createdBy: user.id,
+  }, { status: 201 })
 }
