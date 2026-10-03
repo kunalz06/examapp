@@ -1,0 +1,36 @@
+import { NextResponse } from 'next/server'
+import { createClient } from '@/lib/supabase/server'
+
+const allowedEvents = new Set(['tab_hidden', 'fullscreen_exit', 'media_ended', 'media_permission_denied', 'window_blur'])
+
+export async function POST(request: Request, { params }: { params: Promise<{ attemptId: string }> }) {
+  const { attemptId } = await params
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const body = await request.json().catch(() => null) as { eventId?: string; type?: string; details?: Record<string, unknown> } | null
+  if (!body?.eventId || !body.type || !allowedEvents.has(body.type)) {
+    return NextResponse.json({ error: 'Invalid proctoring event' }, { status: 400 })
+  }
+
+  const { error } = await supabase.from('proctor_events').upsert({
+    client_event_id: body.eventId,
+    attempt_id: attemptId,
+    user_id: user.id,
+    event_type: body.type,
+    details: body.details || {},
+  }, { onConflict: 'client_event_id', ignoreDuplicates: true })
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 400 })
+
+  const { data: attempt } = await supabase
+    .from('exam_attempts')
+    .select('status,violation_count')
+    .eq('id', attemptId)
+    .eq('user_id', user.id)
+    .single()
+
+  if (!attempt) return NextResponse.json({ error: 'Attempt not found' }, { status: 404 })
+  return NextResponse.json({ status: attempt.status, violationCount: attempt.violation_count })
+}
