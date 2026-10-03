@@ -7,6 +7,8 @@ import type { Question } from '@/lib/types'
 export const metadata: Metadata = { title: 'Exam in progress' }
 export const dynamic = 'force-dynamic'
 
+const RECOVERY_GRACE_MS = 2 * 60 * 1000
+
 export default async function AttemptPage({ params }: { params: Promise<{ attemptId: string }> }) {
   const { attemptId } = await params
   const { supabase, user } = await requireStudent()
@@ -20,7 +22,8 @@ export default async function AttemptPage({ params }: { params: Promise<{ attemp
 
   if (!attempt) notFound()
 
-  if (attempt.status === 'in_progress' && new Date(attempt.expires_at).getTime() <= Date.now()) {
+  const recoveryDeadline = new Date(attempt.expires_at).getTime() + RECOVERY_GRACE_MS
+  if (attempt.status === 'in_progress' && Date.now() > recoveryDeadline) {
     await supabase.rpc('submit_attempt', { p_attempt_id: attempt.id })
     const { data: refreshed } = await supabase
       .from('exam_attempts')

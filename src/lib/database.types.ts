@@ -69,6 +69,10 @@ export type Database = {
     Views: Record<string, never>
     Functions: {
       admin_create_exam: { Args: { p_payload: Json }; Returns: string }
+      admin_grade_answer: { Args: { p_attempt_id: string; p_question_id: string; p_score: number; p_feedback?: string }; Returns: Database['public']['Tables']['answers']['Row'] }
+      finalize_attempt: { Args: { p_attempt_id: string; p_answers?: Json }; Returns: Database['public']['Tables']['exam_attempts']['Row'] }
+      get_attempt_grade: { Args: { p_attempt_id: string }; Returns: Json }
+      save_attempt_answer: { Args: { p_attempt_id: string; p_question_id: string; p_selected_option_id?: string | null; p_text_answer?: string | null }; Returns: Database['public']['Tables']['answers']['Row'] }
       submit_attempt: { Args: { p_attempt_id: string }; Returns: Database['public']['Tables']['exam_attempts']['Row'] }
     }
     Enums: {

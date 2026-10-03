@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 
+const RECOVERY_GRACE_MS = 2 * 60 * 1000
+
 export async function GET(_request: Request, { params }: { params: Promise<{ attemptId: string }> }) {
   const { attemptId } = await params
   const supabase = await createClient()
@@ -16,7 +18,8 @@ export async function GET(_request: Request, { params }: { params: Promise<{ att
 
   if (!attempt) return NextResponse.json({ error: 'Attempt not found' }, { status: 404 })
 
-  if (attempt.status === 'in_progress' && new Date(attempt.expires_at).getTime() <= Date.now()) {
+  const recoveryDeadline = new Date(attempt.expires_at).getTime() + RECOVERY_GRACE_MS
+  if (attempt.status === 'in_progress' && Date.now() > recoveryDeadline) {
     const { error: submitError } = await supabase.rpc('submit_attempt', { p_attempt_id: attemptId })
     if (!submitError) {
       const { data: refreshed } = await supabase

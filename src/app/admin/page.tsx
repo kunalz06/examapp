@@ -52,9 +52,9 @@ export default async function AdminPage() {
       .order('created_at', { ascending: false }),
     supabase
       .from('exam_attempts')
-      .select('id,exam_id,user_id,status,started_at,violation_count,auto_score,manual_score')
-      .order('started_at', { ascending: false })
-      .limit(100),
+      .select('id,exam_id,user_id,status,started_at,submitted_at,violation_count,auto_score,manual_score,max_score')
+      .in('status', ['submitted', 'graded', 'disqualified'])
+      .order('started_at', { ascending: false }),
   ])
 
   const examMap = new Map((exams || []).map((exam) => [exam.id, exam.title]))
@@ -69,15 +69,18 @@ export default async function AdminPage() {
           <div>
             <div className="eyebrow">Administration</div>
             <h1 className="page-title">Control center</h1>
-            <p className="muted">Manage student access, examinations, attempts, and grading.</p>
+            <p className="muted">Manage student access, examinations, submissions, and grading.</p>
           </div>
-          <Link className="btn btn-primary" href="/admin/exams/new">Create exam</Link>
+          <div className="actions">
+            <Link className="btn btn-secondary" href="/admin/submissions">All submissions</Link>
+            <Link className="btn btn-primary" href="/admin/exams/new">Create exam</Link>
+          </div>
         </div>
 
         <div className="grid grid-4 admin-stats">
           <div className="stat"><b>{profiles?.length || 0}</b><span className="small muted">students</span></div>
           <div className="stat"><b>{published}</b><span className="small muted">published exams</span></div>
-          <div className="stat"><b>{attempts?.length || 0}</b><span className="small muted">recent attempts</span></div>
+          <div className="stat"><b>{attempts?.length || 0}</b><span className="small muted">submissions</span></div>
           <div className="stat"><b>{pending}</b><span className="small muted">awaiting grading</span></div>
         </div>
 
@@ -87,10 +90,7 @@ export default async function AdminPage() {
 
         <section className="section">
           <div className="section-title-row">
-            <div>
-              <div className="eyebrow">Examinations</div>
-              <h3>Exam management</h3>
-            </div>
+            <div><div className="eyebrow">Examinations</div><h3>Exam management</h3></div>
           </div>
           <div className="table-wrap">
             <table>
@@ -122,14 +122,12 @@ export default async function AdminPage() {
 
         <section className="section">
           <div className="section-title-row">
-            <div>
-              <div className="eyebrow">Attempts</div>
-              <h3>Recent submissions</h3>
-            </div>
+            <div><div className="eyebrow">Submissions</div><h3>All completed attempts</h3></div>
+            <Link className="table-link" href="/admin/submissions">Open submissions view</Link>
           </div>
           <div className="table-wrap">
             <table>
-              <thead><tr><th>Candidate</th><th>Exam</th><th>Status</th><th>Violations</th><th>Score</th><th></th></tr></thead>
+              <thead><tr><th>Candidate</th><th>Exam</th><th>Status</th><th>Violations</th><th>Grade</th><th></th></tr></thead>
               <tbody>
                 {(attempts || []).map((attempt) => (
                   <tr key={attempt.id}>
@@ -137,11 +135,11 @@ export default async function AdminPage() {
                     <td>{examMap.get(attempt.exam_id) || 'Exam'}</td>
                     <td><span className={attempt.status === 'disqualified' ? 'badge red' : 'badge'}>{attempt.status}</span></td>
                     <td>{attempt.violation_count}</td>
-                    <td>{Number(attempt.auto_score) + Number(attempt.manual_score)}</td>
-                    <td><Link className="table-link" href={`/admin/attempts/${attempt.id}`}>Review</Link></td>
+                    <td>{attempt.status === 'graded' ? `${Number(attempt.auto_score) + Number(attempt.manual_score)} / ${Number(attempt.max_score)}` : attempt.status === 'submitted' ? 'Pending' : '—'}</td>
+                    <td><Link className="table-link" href={`/admin/attempts/${attempt.id}`}>Review & mark</Link></td>
                   </tr>
                 ))}
-                {!attempts?.length && <tr><td colSpan={6} className="muted">No attempts yet.</td></tr>}
+                {!attempts?.length && <tr><td colSpan={6} className="muted">No submissions yet.</td></tr>}
               </tbody>
             </table>
           </div>
@@ -149,10 +147,7 @@ export default async function AdminPage() {
 
         <section className="section">
           <div className="section-title-row">
-            <div>
-              <div className="eyebrow">Directory</div>
-              <h3>Students</h3>
-            </div>
+            <div><div className="eyebrow">Directory</div><h3>Students</h3></div>
           </div>
           <div className="table-wrap">
             <table>

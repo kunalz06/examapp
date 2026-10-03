@@ -24,32 +24,28 @@ export async function setExamStatus(formData: FormData) {
 }
 
 export async function gradeAnswer(formData: FormData) {
-  const { supabase, user } = await requireAdmin()
+  const { supabase } = await requireAdmin()
   const attemptId = String(formData.get('attemptId') || '')
   const questionId = String(formData.get('questionId') || '')
   const feedback = String(formData.get('feedback') || '').slice(0, 5000)
-  const scoreRaw = String(formData.get('score') || '')
-  const score = Number(scoreRaw)
-  if (!attemptId || !questionId || !Number.isFinite(score)) throw new Error('Invalid grading data')
+  const score = Number(String(formData.get('score') || ''))
 
-  const grading = {
-    manual_score: score,
-    grader_feedback: feedback,
-    graded_by: user.id,
-    graded_at: new Date().toISOString(),
+  if (!attemptId || !questionId || !Number.isFinite(score)) {
+    throw new Error('Invalid grading data')
   }
-  const { data: existing, error: lookupError } = await supabase
-    .from('answers')
-    .select('id')
-    .eq('attempt_id', attemptId)
-    .eq('question_id', questionId)
-    .maybeSingle()
-  if (lookupError) throw new Error(lookupError.message)
 
-  const result = existing
-    ? await supabase.from('answers').update(grading).eq('id', existing.id)
-    : await supabase.from('answers').insert({ attempt_id: attemptId, question_id: questionId, ...grading })
-  if (result.error) throw new Error(result.error.message)
+  const { error } = await supabase.rpc('admin_grade_answer', {
+    p_attempt_id: attemptId,
+    p_question_id: questionId,
+    p_score: score,
+    p_feedback: feedback,
+  })
+
+  if (error) throw new Error(error.message)
+
   revalidatePath(`/admin/attempts/${attemptId}`)
   revalidatePath('/admin')
+  revalidatePath('/admin/submissions')
+  revalidatePath(`/attempt/${attemptId}/result`)
+  revalidatePath('/dashboard')
 }

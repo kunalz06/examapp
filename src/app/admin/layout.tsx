@@ -23,6 +23,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
             </Link>
             <nav className="admin-links" aria-label="Admin navigation">
               <Link href="/admin">Overview</Link>
+              <Link href="/admin/submissions">Submissions</Link>
               <Link href="/admin/exams/new">Create exam</Link>
               <SignOutButton redirectTo="/admin" />
             </nav>

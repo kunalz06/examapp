@@ -31,6 +31,9 @@ export default async function ReviewAttemptPage({ params }: { params: Promise<{ 
   const answerMap = new Map((answers || []).map((answer) => [answer.question_id, answer]))
   const keyMap = new Map((keys || []).map((key) => [key.question_id, key.correct_option_id]))
   const totalScore = Number(attempt.auto_score) + Number(attempt.manual_score)
+  const manualQuestions = (questions || []).filter((question) => question.type === 'short_text')
+  const markedCount = manualQuestions.filter((question) => answerMap.get(question.id)?.manual_score !== null && answerMap.get(question.id)?.manual_score !== undefined).length
+  const canGrade = attempt.status === 'submitted' || attempt.status === 'graded'
 
   return (
     <main>
@@ -43,15 +46,23 @@ export default async function ReviewAttemptPage({ params }: { params: Promise<{ 
           </div>
           <div className="actions">
             <span className={attempt.status === 'disqualified' ? 'badge red' : 'badge'}>{attempt.status}</span>
-            <Link className="btn btn-secondary" href="/admin">Back</Link>
+            <Link className="btn btn-secondary" href="/admin/submissions">All submissions</Link>
           </div>
         </div>
 
-        <div className="grid grid-3">
+        <div className="grid grid-4">
           <div className="stat"><b>{totalScore}</b><span className="small muted">score / {Number(attempt.max_score)}</span></div>
           <div className="stat"><b>{attempt.violation_count}</b><span className="small muted">tab violations</span></div>
+          <div className="stat"><b>{markedCount} / {manualQuestions.length}</b><span className="small muted">written answers marked</span></div>
           <div className="stat"><b>{events?.length || 0}</b><span className="small muted">proctor events</span></div>
         </div>
+
+        {!canGrade && attempt.status === 'in_progress' && (
+          <div className="notice section">This attempt is still in progress. Marking becomes available after submission.</div>
+        )}
+        {attempt.status === 'graded' && (
+          <div className="success section">All written answers are marked. The final grade is visible to the student.</div>
+        )}
 
         <section className="section stack">
           <div className="section-title-row">
@@ -90,30 +101,34 @@ export default async function ReviewAttemptPage({ params }: { params: Promise<{ 
                       <span className="field-hint">Written response</span>
                       <p>{answer?.text_answer || 'No answer submitted.'}</p>
                     </div>
-                    <form className="form marking-form" action={gradeAnswer}>
-                      <input type="hidden" name="attemptId" value={attempt.id} />
-                      <input type="hidden" name="questionId" value={question.id} />
-                      <div className="grid grid-2">
-                        <div className="field">
-                          <label>Score (0–{Number(question.points)})</label>
-                          <input
-                            className="input"
-                            name="score"
-                            type="number"
-                            min={0}
-                            max={Number(question.points)}
-                            step="0.5"
-                            defaultValue={answer?.manual_score ?? 0}
-                            required
-                          />
+                    {canGrade ? (
+                      <form className="form marking-form" action={gradeAnswer}>
+                        <input type="hidden" name="attemptId" value={attempt.id} />
+                        <input type="hidden" name="questionId" value={question.id} />
+                        <div className="grid grid-2">
+                          <div className="field">
+                            <label>Score (0–{Number(question.points)})</label>
+                            <input
+                              className="input"
+                              name="score"
+                              type="number"
+                              min={0}
+                              max={Number(question.points)}
+                              step="0.5"
+                              defaultValue={answer?.manual_score ?? ''}
+                              required
+                            />
+                          </div>
+                          <div className="field">
+                            <label>Feedback</label>
+                            <input className="input" name="feedback" maxLength={5000} defaultValue={answer?.grader_feedback || ''} />
+                          </div>
                         </div>
-                        <div className="field">
-                          <label>Feedback</label>
-                          <input className="input" name="feedback" defaultValue={answer?.grader_feedback || ''} />
-                        </div>
-                      </div>
-                      <button className="btn btn-primary">Save mark</button>
-                    </form>
+                        <button className="btn btn-primary">{answer?.manual_score === null || answer?.manual_score === undefined ? 'Save mark' : 'Update mark'}</button>
+                      </form>
+                    ) : (
+                      <div className="muted small">Marking is unavailable until this attempt has been submitted.</div>
+                    )}
                   </>
                 )}
               </article>

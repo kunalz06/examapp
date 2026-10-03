@@ -6,6 +6,14 @@ import type { AttemptStatus, Question } from '@/lib/types'
 
 type SavedAnswer = { question_id: string; selected_option_id: string | null; text_answer: string | null }
 type PendingEvent = { eventId: string; type: string; details: Record<string, unknown> }
+type PendingAnswer = {
+  questionId: string
+  selectedOptionId: string | null
+  text: string | null
+  revision: string
+}
+type AnswerValue = { selectedOptionId: string; text: string }
+type SaveState = 'saved' | 'saving' | 'offline' | 'error'
 
 type Props = {
   attemptId: string
@@ -22,15 +30,23 @@ export function ExamRunner({ attemptId, examTitle, expiresAt, initialViolationCo
   const streamRef = useRef<MediaStream | null>(null)
   const submittingRef = useRef(false)
   const textSaveTimers = useRef<Record<string, number>>({})
+  const answersRef = useRef<Record<string, AnswerValue>>({})
+  const secondsLeftRef = useRef(0)
 
   const [mediaReady, setMediaReady] = useState(false)
   const [mediaError, setMediaError] = useState('')
   const [connectionError, setConnectionError] = useState('')
   const [violationCount, setViolationCount] = useState(initialViolationCount)
   const [status, setStatus] = useState<AttemptStatus>('in_progress')
-  const [secondsLeft, setSecondsLeft] = useState(() => Math.max(0, Math.floor((new Date(expiresAt).getTime() - Date.now()) / 1000)))
-  const [answers, setAnswers] = useState<Record<string, { selectedOptionId: string; text: string }>>(() => {
-    const mapped: Record<string, { selectedOptionId: string; text: string }> = {}
+  const [submitting, setSubmitting] = useState(false)
+  const [saveState, setSaveState] = useState<SaveState>('saved')
+  const [pendingCount, setPendingCount] = useState(0)
+  const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null)
+  const [secondsLeft, setSecondsLeft] = useState(() =>
+    Math.max(0, Math.floor((new Date(expiresAt).getTime() - Date.now()) / 1000)),
+  )
+  const [answers, setAnswers] = useState<Record<string, AnswerValue>>(() => {
+    const mapped: Record<string, AnswerValue> = {}
     for (const answer of initialAnswers) {
       mapped[answer.question_id] = {
         selectedOptionId: answer.selected_option_id || '',
@@ -40,28 +56,158 @@ export function ExamRunner({ attemptId, examTitle, expiresAt, initialViolationCo
     return mapped
   })
 
-  const queueKey = useMemo(() => `examcore:events:${attemptId}`, [attemptId])
+  const eventQueueKey = useMemo(() => `examcore:events:${attemptId}`, [attemptId])
+  const answerQueueKey = useMemo(() => `examcore:answers:${attemptId}`, [attemptId])
+
+  useEffect(() => {
+    answersRef.current = answers
+  }, [answers])
+
+  useEffect(() => {
+    secondsLeftRef.current = secondsLeft
+  }, [secondsLeft])
 
   const stopMedia = useCallback(() => {
     streamRef.current?.getTracks().forEach((track) => track.stop())
     streamRef.current = null
   }, [])
 
-  const syncStatus = useCallback(async () => {
+  const readPendingAnswers = useCallback((): Record<string, PendingAnswer> => {
     try {
-      const response = await fetch(`/api/attempts/${attemptId}/status`, { cache: 'no-store' })
-      if (!response.ok) return
-      const data = await response.json()
-      setViolationCount(data.violationCount)
-      setStatus(data.status)
-      if (data.status !== 'in_progress') {
-        stopMedia()
-        router.replace(`/attempt/${attemptId}/result`)
-      }
+      const raw = localStorage.getItem(answerQueueKey)
+      return raw ? JSON.parse(raw) as Record<string, PendingAnswer> : {}
     } catch {
-      // Save requests surface connectivity failures to the candidate.
+      return {}
     }
-  }, [attemptId, router, stopMedia])
+  }, [answerQueueKey])
+
+  const writePendingAnswers = useCallback((pending: Record<string, PendingAnswer>) => {
+    try {
+      localStorage.setItem(answerQueueKey, JSON.stringify(pending))
+    } catch {
+      // In-memory state still keeps the current answer if storage is unavailable.
+    }
+    setPendingCount(Object.keys(pending).length)
+  }, [answerQueueKey])
+
+  const clearPendingAnswers = useCallback(() => {
+    try {
+      localStorage.removeItem(answerQueueKey)
+    } catch {
+      // Ignore restrictive storage environments.
+    }
+    setPendingCount(0)
+    setSaveState('saved')
+  }, [answerQueueKey])
+
+  const savePendingAnswer = useCallback(async (entry: PendingAnswer) => {
+    if (!navigator.onLine) {
+      setSaveState('offline')
+      return false
+    }
+
+    setSaveState('saving')
+    try {
+      const response = await fetch(`/api/attempts/${attemptId}/answer`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          questionId: entry.questionId,
+          selectedOptionId: entry.selectedOptionId,
+          text: entry.text,
+        }),
+        keepalive: true,
+      })
+      if (!response.ok) {
+        const result = await response.json().catch(() => ({ error: 'Answer save failed' }))
+        throw new Error(result.error)
+      }
+
+      const current = readPendingAnswers()
+      if (current[entry.questionId]?.revision === entry.revision) {
+        delete current[entry.questionId]
+        writePendingAnswers(current)
+      }
+
+      setLastSavedAt(new Date())
+      setConnectionError('')
+      setSaveState(Object.keys(current).length ? 'saving' : 'saved')
+      return true
+    } catch {
+      setSaveState(navigator.onLine ? 'error' : 'offline')
+      setConnectionError('Some answers are waiting to sync. They are kept on this device and will retry automatically.')
+      return false
+    }
+  }, [attemptId, readPendingAnswers, writePendingAnswers])
+
+  const flushAnswers = useCallback(async () => {
+    const pending = readPendingAnswers()
+    const entries = Object.values(pending)
+    if (!entries.length) {
+      setSaveState('saved')
+      return
+    }
+    if (!navigator.onLine) {
+      setSaveState('offline')
+      return
+    }
+
+    setSaveState('saving')
+    for (const entry of entries) {
+      const ok = await savePendingAnswer(entry)
+      if (!ok && !navigator.onLine) break
+    }
+  }, [readPendingAnswers, savePendingAnswer])
+
+  const flushQuestion = useCallback(async (questionId: string) => {
+    const entry = readPendingAnswers()[questionId]
+    if (entry) await savePendingAnswer(entry)
+  }, [readPendingAnswers, savePendingAnswer])
+
+  const stageAnswer = useCallback((
+    questionId: string,
+    value: { selectedOptionId?: string | null; text?: string | null },
+    saveImmediately: boolean,
+  ) => {
+    const entry: PendingAnswer = {
+      questionId,
+      selectedOptionId: value.selectedOptionId ?? null,
+      text: value.text ?? null,
+      revision: crypto.randomUUID(),
+    }
+    const pending = readPendingAnswers()
+    pending[questionId] = entry
+    writePendingAnswers(pending)
+    setSaveState(navigator.onLine ? 'saving' : 'offline')
+    if (saveImmediately) void savePendingAnswer(entry)
+  }, [readPendingAnswers, savePendingAnswer, writePendingAnswers])
+
+  const scheduleTextSave = useCallback((questionId: string) => {
+    const existing = textSaveTimers.current[questionId]
+    if (existing) window.clearTimeout(existing)
+
+    textSaveTimers.current[questionId] = window.setTimeout(() => {
+      void flushQuestion(questionId)
+      delete textSaveTimers.current[questionId]
+    }, 650)
+  }, [flushQuestion])
+
+  const saveEventQueue = useCallback((events: PendingEvent[]) => {
+    try {
+      localStorage.setItem(eventQueueKey, JSON.stringify(events))
+    } catch {
+      // Storage may be unavailable in restrictive browser modes.
+    }
+  }, [eventQueueKey])
+
+  const readEventQueue = useCallback((): PendingEvent[] => {
+    try {
+      const raw = localStorage.getItem(eventQueueKey)
+      return raw ? JSON.parse(raw) as PendingEvent[] : []
+    } catch {
+      return []
+    }
+  }, [eventQueueKey])
 
   const sendEvent = useCallback(async (event: PendingEvent) => {
     try {
@@ -75,44 +221,25 @@ export function ExamRunner({ attemptId, examTitle, expiresAt, initialViolationCo
       const data = await response.json()
       setViolationCount(data.violationCount)
       setStatus(data.status)
-      setConnectionError('')
       return true
     } catch {
-      setConnectionError('Connection interrupted. Exam events will retry automatically.')
       return false
     }
   }, [attemptId])
 
-  const saveQueue = useCallback((events: PendingEvent[]) => {
-    try {
-      localStorage.setItem(queueKey, JSON.stringify(events))
-    } catch {
-      // Storage may be unavailable in restrictive browser modes.
-    }
-  }, [queueKey])
-
-  const readQueue = useCallback((): PendingEvent[] => {
-    try {
-      const raw = localStorage.getItem(queueKey)
-      return raw ? JSON.parse(raw) as PendingEvent[] : []
-    } catch {
-      return []
-    }
-  }, [queueKey])
-
   const queueEvent = useCallback(async (type: string, details: Record<string, unknown> = {}) => {
     const event: PendingEvent = { eventId: crypto.randomUUID(), type, details }
-    const queue = [...readQueue(), event]
-    saveQueue(queue)
+    const queue = [...readEventQueue(), event]
+    saveEventQueue(queue)
 
     if (type === 'tab_hidden') setViolationCount((count) => Math.min(3, count + 1))
 
     const ok = await sendEvent(event)
-    if (ok) saveQueue(readQueue().filter((item) => item.eventId !== event.eventId))
-  }, [readQueue, saveQueue, sendEvent])
+    if (ok) saveEventQueue(readEventQueue().filter((item) => item.eventId !== event.eventId))
+  }, [readEventQueue, saveEventQueue, sendEvent])
 
-  const flushQueue = useCallback(async () => {
-    const queue = readQueue()
+  const flushEventQueue = useCallback(async () => {
+    const queue = readEventQueue()
     if (!queue.length) return
 
     const remaining: PendingEvent[] = []
@@ -120,9 +247,25 @@ export function ExamRunner({ attemptId, examTitle, expiresAt, initialViolationCo
       const ok = await sendEvent(event)
       if (!ok) remaining.push(event)
     }
-    saveQueue(remaining)
-    await syncStatus()
-  }, [readQueue, saveQueue, sendEvent, syncStatus])
+    saveEventQueue(remaining)
+  }, [readEventQueue, saveEventQueue, sendEvent])
+
+  const syncStatus = useCallback(async () => {
+    try {
+      const response = await fetch(`/api/attempts/${attemptId}/status`, { cache: 'no-store' })
+      if (!response.ok) return
+      const data = await response.json()
+      setViolationCount(data.violationCount)
+      setStatus(data.status)
+      if (data.status !== 'in_progress') {
+        clearPendingAnswers()
+        stopMedia()
+        router.replace(`/attempt/${attemptId}/result`)
+      }
+    } catch {
+      // Autosave state already tells the student when connectivity is interrupted.
+    }
+  }, [attemptId, clearPendingAnswers, router, stopMedia])
 
   const startMedia = useCallback(async () => {
     setMediaError('')
@@ -152,91 +295,96 @@ export function ExamRunner({ attemptId, examTitle, expiresAt, initialViolationCo
     }
   }, [queueEvent, stopMedia])
 
-  const saveAnswer = useCallback(async (
-    questionId: string,
-    value: { selectedOptionId?: string; text?: string },
-  ) => {
-    try {
-      const response = await fetch(`/api/attempts/${attemptId}/answer`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ questionId, ...value }),
-      })
-      if (!response.ok) {
-        const result = await response.json().catch(() => ({ error: 'Answer save failed' }))
-        throw new Error(result.error)
-      }
-      setConnectionError('')
-    } catch {
-      setConnectionError('An answer could not be saved. Check your connection before submitting.')
-    }
-  }, [attemptId])
-
-  const scheduleTextSave = useCallback((questionId: string, text: string) => {
-    const existing = textSaveTimers.current[questionId]
-    if (existing) window.clearTimeout(existing)
-
-    textSaveTimers.current[questionId] = window.setTimeout(() => {
-      void saveAnswer(questionId, { text })
-      delete textSaveTimers.current[questionId]
-    }, 700)
-  }, [saveAnswer])
-
   const submit = useCallback(async () => {
     if (submittingRef.current || status !== 'in_progress') return
+    if (!navigator.onLine) {
+      setSaveState('offline')
+      setConnectionError('You are offline. Your answers are stored on this device and submission will retry when the connection returns.')
+      return
+    }
+
     submittingRef.current = true
+    setSubmitting(true)
     setConnectionError('')
 
     try {
       Object.values(textSaveTimers.current).forEach((timer) => window.clearTimeout(timer))
       textSaveTimers.current = {}
 
-      for (const question of questions) {
-        const current = answers[question.id]
-        if (!current) continue
+      const snapshot = answersRef.current
+      const finalAnswers = questions.map((question) => {
+        const current = snapshot[question.id] || { selectedOptionId: '', text: '' }
+        return question.type === 'single_choice'
+          ? { questionId: question.id, selectedOptionId: current.selectedOptionId || null, text: null }
+          : { questionId: question.id, selectedOptionId: null, text: current.text }
+      })
 
-        const payload = question.type === 'single_choice'
-          ? { questionId: question.id, selectedOptionId: current.selectedOptionId }
-          : { questionId: question.id, text: current.text }
+      await flushEventQueue()
 
-        const saveResponse = await fetch(`/api/attempts/${attemptId}/answer`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        })
-        if (!saveResponse.ok) throw new Error('Could not save all answers. Check your connection and try again.')
-      }
+      const response = await fetch(`/api/attempts/${attemptId}/submit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ answers: finalAnswers }),
+      })
+      const data = await response.json().catch(() => ({ error: 'Submission failed' }))
+      if (!response.ok) throw new Error(data.error || 'Submission failed')
 
-      await flushQueue()
-
-      const response = await fetch(`/api/attempts/${attemptId}/submit`, { method: 'POST' })
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({ error: 'Submission failed' }))
-        throw new Error(data.error)
-      }
-
+      clearPendingAnswers()
+      setStatus(data.status || 'submitted')
       stopMedia()
       router.replace(`/attempt/${attemptId}/result`)
     } catch (error) {
-      setConnectionError(error instanceof Error ? error.message : 'Submission failed. Try again.')
+      setConnectionError(error instanceof Error ? error.message : 'Submission failed. It will retry when possible.')
       submittingRef.current = false
+      setSubmitting(false)
     }
-  }, [answers, attemptId, flushQueue, questions, router, status, stopMedia])
+  }, [attemptId, clearPendingAnswers, flushEventQueue, questions, router, status, stopMedia])
+
+  useEffect(() => {
+    const validIds = new Set(questions.map((question) => question.id))
+    const stored = readPendingAnswers()
+    const pending: Record<string, PendingAnswer> = {}
+
+    for (const [questionId, entry] of Object.entries(stored)) {
+      if (validIds.has(questionId)) pending[questionId] = entry
+    }
+
+    writePendingAnswers(pending)
+    if (Object.keys(pending).length) {
+      setAnswers((current) => {
+        const next = { ...current }
+        for (const entry of Object.values(pending)) {
+          next[entry.questionId] = {
+            selectedOptionId: entry.selectedOptionId || '',
+            text: entry.text || '',
+          }
+        }
+        return next
+      })
+      setSaveState(navigator.onLine ? 'saving' : 'offline')
+      void flushAnswers()
+    }
+  }, [flushAnswers, questions, readPendingAnswers, writePendingAnswers])
 
   useEffect(() => {
     void startMedia()
-    void flushQueue()
+    void flushEventQueue()
 
     const onVisibility = () => {
       if (document.visibilityState === 'hidden') {
         void queueEvent('tab_hidden', { at: new Date().toISOString() })
       } else {
-        void flushQueue()
+        void flushAnswers()
+        void flushEventQueue()
         void syncStatus()
       }
     }
 
-    const onOnline = () => void flushQueue()
+    const onOnline = () => {
+      void flushAnswers()
+      void flushEventQueue()
+      if (secondsLeftRef.current === 0) void submit()
+    }
 
     document.addEventListener('visibilitychange', onVisibility)
     window.addEventListener('online', onOnline)
@@ -247,13 +395,20 @@ export function ExamRunner({ attemptId, examTitle, expiresAt, initialViolationCo
       Object.values(textSaveTimers.current).forEach((timer) => window.clearTimeout(timer))
       stopMedia()
     }
-  }, [flushQueue, queueEvent, startMedia, stopMedia, syncStatus])
+  }, [flushAnswers, flushEventQueue, queueEvent, startMedia, stopMedia, submit, syncStatus])
+
+  useEffect(() => {
+    const autosave = window.setInterval(() => {
+      void flushAnswers()
+    }, 5000)
+    return () => window.clearInterval(autosave)
+  }, [flushAnswers])
 
   useEffect(() => {
     const timer = window.setInterval(() => {
       const remaining = Math.max(0, Math.floor((new Date(expiresAt).getTime() - Date.now()) / 1000))
       setSecondsLeft(remaining)
-      if (remaining === 0) void submit()
+      if (remaining === 0 && navigator.onLine) void submit()
     }, 1000)
 
     return () => window.clearInterval(timer)
@@ -265,6 +420,22 @@ export function ExamRunner({ attemptId, examTitle, expiresAt, initialViolationCo
   }, [syncStatus])
 
   const time = `${String(Math.floor(secondsLeft / 60)).padStart(2, '0')}:${String(secondsLeft % 60).padStart(2, '0')}`
+  const answeredCount = questions.filter((question) => {
+    const current = answers[question.id]
+    return question.type === 'single_choice'
+      ? Boolean(current?.selectedOptionId)
+      : Boolean(current?.text.trim())
+  }).length
+
+  const saveLabel = saveState === 'offline'
+    ? `Offline · ${pendingCount} queued`
+    : saveState === 'error'
+      ? `Retrying ${pendingCount} save${pendingCount === 1 ? '' : 's'}`
+      : saveState === 'saving'
+        ? `Saving${pendingCount ? ` ${pendingCount}` : ''}…`
+        : lastSavedAt
+          ? `Saved ${lastSavedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+          : 'Saved'
 
   if (status === 'disqualified') {
     return (
@@ -285,6 +456,10 @@ export function ExamRunner({ attemptId, examTitle, expiresAt, initialViolationCo
           <div>
             <div className="eyebrow">Exam in progress</div>
             <h1 className="exam-title">{examTitle}</h1>
+            <div className="actions">
+              <span className={saveState === 'error' || saveState === 'offline' ? 'badge red' : 'badge'}>{saveLabel}</span>
+              <span className="badge black">{answeredCount} / {questions.length} answered</span>
+            </div>
           </div>
           <div className="mobile-timer" aria-label="Time remaining">{time}</div>
         </div>
@@ -301,7 +476,7 @@ export function ExamRunner({ attemptId, examTitle, expiresAt, initialViolationCo
 
         <div
           className="stack"
-          style={{ visibility: mediaReady ? 'visible' : 'hidden', pointerEvents: mediaReady ? 'auto' : 'none' }}
+          style={{ visibility: mediaReady ? 'visible' : 'hidden', pointerEvents: mediaReady && secondsLeft > 0 ? 'auto' : 'none' }}
           aria-hidden={!mediaReady}
         >
           {questions.map((question, index) => {
@@ -327,9 +502,12 @@ export function ExamRunner({ attemptId, examTitle, expiresAt, initialViolationCo
                           onChange={() => {
                             setAnswers((all) => ({
                               ...all,
-                              [question.id]: { ...current, selectedOptionId: option.id },
+                              [question.id]: {
+                                selectedOptionId: option.id,
+                                text: all[question.id]?.text || '',
+                              },
                             }))
-                            void saveAnswer(question.id, { selectedOptionId: option.id })
+                            stageAnswer(question.id, { selectedOptionId: option.id, text: null }, true)
                           }}
                         />
                         <span>{option.label}</span>
@@ -343,10 +521,17 @@ export function ExamRunner({ attemptId, examTitle, expiresAt, initialViolationCo
                     placeholder="Type your answer"
                     onChange={(event) => {
                       const text = event.target.value
-                      setAnswers((all) => ({ ...all, [question.id]: { ...current, text } }))
-                      scheduleTextSave(question.id, text)
+                      setAnswers((all) => ({
+                        ...all,
+                        [question.id]: {
+                          selectedOptionId: all[question.id]?.selectedOptionId || '',
+                          text,
+                        },
+                      }))
+                      stageAnswer(question.id, { selectedOptionId: null, text }, false)
+                      scheduleTextSave(question.id)
                     }}
-                    onBlur={() => void saveAnswer(question.id, { text: (answers[question.id] || current).text })}
+                    onBlur={() => void flushQuestion(question.id)}
                   />
                 )}
               </article>
@@ -354,9 +539,17 @@ export function ExamRunner({ attemptId, examTitle, expiresAt, initialViolationCo
           })}
 
           <div className="submit-bar">
-            <span className="muted small">Review your answers before submitting.</span>
-            <button className="btn btn-primary" disabled={submittingRef.current} onClick={() => void submit()}>
-              Submit exam
+            <span className="muted small">
+              {secondsLeft === 0
+                ? 'Time is up. Finalizing your saved answers…'
+                : 'Your latest answers are included atomically when you submit.'}
+            </span>
+            <button
+              className="btn btn-primary"
+              disabled={submitting || secondsLeft === 0}
+              onClick={() => void submit()}
+            >
+              {submitting ? 'Submitting…' : 'Submit exam'}
             </button>
           </div>
         </div>

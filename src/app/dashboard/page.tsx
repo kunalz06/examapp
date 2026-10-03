@@ -15,7 +15,7 @@ export default async function DashboardPage() {
       .order('created_at', { ascending: false }),
     supabase
       .from('exam_attempts')
-      .select('id,exam_id,status,started_at,expires_at,violation_count,auto_score,manual_score')
+      .select('id,exam_id,status,started_at,expires_at,violation_count,auto_score,manual_score,max_score')
       .eq('user_id', user.id)
       .order('started_at', { ascending: false }),
   ])
@@ -32,7 +32,7 @@ export default async function DashboardPage() {
           <div>
             <div className="eyebrow">Student dashboard</div>
             <h1 className="page-title">Welcome, {profile.display_name || user.email}</h1>
-            <p className="muted">Your examinations and attempt history.</p>
+            <p className="muted">Your examinations, submissions, and released grades.</p>
           </div>
         </div>
 
@@ -44,10 +44,7 @@ export default async function DashboardPage() {
 
         <section className="section">
           <div className="section-title-row">
-            <div>
-              <div className="eyebrow">Available</div>
-              <h2 className="section-heading">Examinations</h2>
-            </div>
+            <div><div className="eyebrow">Available</div><h2 className="section-heading">Examinations</h2></div>
           </div>
 
           <div className="grid grid-2 exam-card-grid">
@@ -78,15 +75,9 @@ export default async function DashboardPage() {
                   )}
 
                   <div className="actions exam-card-actions">
-                    {!attempt && !upcoming && !closed && (
-                      <Link className="btn btn-primary" href={`/exam/${exam.id}`}>Open exam</Link>
-                    )}
-                    {attempt?.status === 'in_progress' && (
-                      <Link className="btn btn-primary" href={`/attempt/${attempt.id}`}>Resume attempt</Link>
-                    )}
-                    {attempt && attempt.status !== 'in_progress' && (
-                      <Link className="btn btn-secondary" href={`/attempt/${attempt.id}/result`}>View result</Link>
-                    )}
+                    {!attempt && !upcoming && !closed && <Link className="btn btn-primary" href={`/exam/${exam.id}`}>Open exam</Link>}
+                    {attempt?.status === 'in_progress' && <Link className="btn btn-primary" href={`/attempt/${attempt.id}`}>Resume attempt</Link>}
+                    {attempt && attempt.status !== 'in_progress' && <Link className="btn btn-secondary" href={`/attempt/${attempt.id}/result`}>{attempt.status === 'graded' ? 'View grade' : 'View submission'}</Link>}
                   </div>
                 </article>
               )
@@ -103,24 +94,24 @@ export default async function DashboardPage() {
 
         <section className="section">
           <div className="section-title-row">
-            <div>
-              <div className="eyebrow">History</div>
-              <h2 className="section-heading">Attempts</h2>
-            </div>
+            <div><div className="eyebrow">History</div><h2 className="section-heading">Attempts</h2></div>
           </div>
           <div className="table-wrap">
             <table>
-              <thead><tr><th>Started</th><th>Status</th><th>Violations</th><th>Score</th><th></th></tr></thead>
+              <thead><tr><th>Started</th><th>Status</th><th>Violations</th><th>Grade</th><th></th></tr></thead>
               <tbody>
-                {(attempts || []).map((attempt) => (
-                  <tr key={attempt.id}>
-                    <td>{new Date(attempt.started_at).toLocaleString('en-IN')}</td>
-                    <td><span className={attempt.status === 'disqualified' ? 'badge red' : 'badge'}>{attempt.status}</span></td>
-                    <td>{attempt.violation_count}</td>
-                    <td>{attempt.status === 'in_progress' ? '—' : Number(attempt.auto_score) + Number(attempt.manual_score)}</td>
-                    <td><Link className="table-link" href={attempt.status === 'in_progress' ? `/attempt/${attempt.id}` : `/attempt/${attempt.id}/result`}>Open</Link></td>
-                  </tr>
-                ))}
+                {(attempts || []).map((attempt) => {
+                  const score = Number(attempt.auto_score) + Number(attempt.manual_score)
+                  return (
+                    <tr key={attempt.id}>
+                      <td>{new Date(attempt.started_at).toLocaleString('en-IN')}</td>
+                      <td><span className={attempt.status === 'disqualified' ? 'badge red' : 'badge'}>{attempt.status}</span></td>
+                      <td>{attempt.violation_count}</td>
+                      <td>{attempt.status === 'graded' ? `${score} / ${Number(attempt.max_score)}` : attempt.status === 'submitted' ? 'Pending marking' : '—'}</td>
+                      <td><Link className="table-link" href={attempt.status === 'in_progress' ? `/attempt/${attempt.id}` : `/attempt/${attempt.id}/result`}>Open</Link></td>
+                    </tr>
+                  )
+                })}
                 {!attempts?.length && <tr><td colSpan={5} className="muted">No attempts yet.</td></tr>}
               </tbody>
             </table>
