@@ -8,9 +8,11 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
   const params = await searchParams
   const initialMessage = params.error === 'account_unavailable'
     ? 'This account is not enabled for the student examination portal.'
-    : params.reset === '1'
-      ? 'Password updated. Sign in with your new password.'
-      : ''
+    : params.error === 'recovery_invalid'
+      ? 'That password reset link is invalid or has expired. Ask your administrator to send a new reset email.'
+      : params.reset === '1'
+        ? 'Password updated. Sign in with your new password.'
+        : ''
 
   return (
     <main className="auth-page">

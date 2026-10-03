@@ -29,6 +29,24 @@ function escapeHtml(value: string) {
   }[char] ?? char));
 }
 
+function safeAppOrigin(candidate: string) {
+  try {
+    const url = new URL(candidate);
+    const allowedHosts = new Set([
+      "examapp-seven.vercel.app",
+      "examapp-mitraricky06-gmailcoms-projects.vercel.app",
+      "examapp-git-main-mitraricky06-gmailcoms-projects.vercel.app",
+      "localhost:3000",
+    ]);
+    if ((url.protocol === "https:" || url.hostname === "localhost") && allowedHosts.has(url.host)) {
+      return url.origin;
+    }
+  } catch {
+    // fall through
+  }
+  return "https://examapp-seven.vercel.app";
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
 
@@ -51,15 +69,17 @@ Deno.serve(async (req: Request) => {
   const { data: authData, error: authError } = await userClient.auth.getUser(authHeader.slice(7));
   if (authError || !authData.user) return json({ error: "Unauthorized" }, 401);
 
-  const { data: caller } = await adminClient.from("profiles").select("role").eq("id", authData.user.id).maybeSingle();
+  const { data: caller } = await adminClient
+    .from("profiles")
+    .select("role")
+    .eq("id", authData.user.id)
+    .maybeSingle();
+
   if (caller?.role !== "admin") return json({ error: "Admin access required." }, 403);
 
   const payload = await req.json().catch(() => null) as Payload | null;
   const studentId = String(payload?.studentId ?? "");
-  const redirectOrigin = String(payload?.redirectOrigin ?? "").replace(/\/$/, "");
-  if (!studentId || !/^https?:\/\//i.test(redirectOrigin)) {
-    return json({ error: "Invalid reset request." }, 400);
-  }
+  if (!studentId) return json({ error: "Student id is required." }, 400);
 
   const { data: student } = await adminClient
     .from("profiles")
@@ -74,18 +94,23 @@ Deno.serve(async (req: Request) => {
   const { data: recovery, error: recoveryError } = await adminClient.auth.admin.generateLink({
     type: "recovery",
     email: student.email,
-    options: { redirectTo: `${redirectOrigin}/account/recover` },
   });
 
-  const actionLink = recovery?.properties?.action_link;
-  if (recoveryError || !actionLink) {
-    return json({ error: "Password recovery link could not be generated." }, 500);
+  const tokenHash = recovery?.properties?.hashed_token;
+  if (recoveryError || !tokenHash) {
+    return json({ error: "Password recovery token could not be generated." }, 500);
   }
+
+  const appOrigin = safeAppOrigin(String(payload?.redirectOrigin ?? ""));
+  const recoveryUrl = new URL("/auth/recovery", appOrigin);
+  recoveryUrl.searchParams.set("token_hash", tokenHash);
+  recoveryUrl.searchParams.set("type", "recovery");
 
   try {
     const { data: configData, error: configError } = await adminClient.rpc("get_smtp_runtime_config");
     if (configError || !configData) throw new Error("SMTP configuration unavailable");
     const config = configData as SmtpConfig;
+
     const transport = nodemailer.createTransport({
       host: config.host,
       port: Number(config.port),
@@ -94,6 +119,8 @@ Deno.serve(async (req: Request) => {
     });
 
     const name = student.display_name || "Student";
+    const resetUrl = recoveryUrl.toString();
+
     await transport.sendMail({
       from: `ExamCore <${config.from}>`,
       to: student.email,
@@ -102,16 +129,16 @@ Deno.serve(async (req: Request) => {
 
 An examination administrator initiated a password reset for your ExamCore account.
 
-Open this secure link to choose a new password:
-${actionLink}
+Open this secure one-time link to choose a new password:
+${resetUrl}
 
 If you did not expect this reset, contact your administrator.`,
       html: `<div style="font-family:Arial,sans-serif;line-height:1.6;color:#111">
         <h2>ExamCore password reset</h2>
         <p>Hello ${escapeHtml(name)},</p>
         <p>An examination administrator initiated a password reset for your account.</p>
-        <p><a href="${escapeHtml(actionLink)}" style="display:inline-block;padding:12px 18px;background:#111;color:#fff;text-decoration:none;border-radius:6px">Choose a new password</a></p>
-        <p>If you did not expect this reset, contact your administrator.</p>
+        <p><a href="${escapeHtml(resetUrl)}" style="display:inline-block;padding:12px 18px;background:#111;color:#fff;text-decoration:none;border-radius:6px">Choose a new password</a></p>
+        <p>This is a secure one-time recovery link. If you did not expect this reset, contact your administrator.</p>
       </div>`,
     });
   } catch {
