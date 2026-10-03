@@ -1,15 +1,12 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 
-function publicOrigin(request: Request) {
-  const forwardedHost = request.headers.get('x-forwarded-host') || request.headers.get('host')
-  const forwardedProto = request.headers.get('x-forwarded-proto') || 'https'
-  return forwardedHost ? `${forwardedProto}://${forwardedHost}` : 'https://examapp-seven.vercel.app'
-}
+const PRODUCTION_ORIGIN = 'https://examapp-seven.vercel.app'
 
-export async function POST(request: Request, { params }: { params: Promise<{ studentId: string }> }) {
+export async function POST(_request: Request, { params }: { params: Promise<{ studentId: string }> }) {
   const { studentId } = await params
   const supabase = await createClient()
+
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
@@ -27,7 +24,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ stu
       apikey: process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ studentId, redirectOrigin: publicOrigin(request) }),
+    body: JSON.stringify({ studentId, redirectOrigin: PRODUCTION_ORIGIN }),
   })
 
   const payload = await response.json().catch(() => ({ error: 'Password reset service returned an invalid response.' }))

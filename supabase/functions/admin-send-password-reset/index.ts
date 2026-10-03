@@ -36,9 +36,8 @@ function safeAppOrigin(candidate: string) {
       "examapp-seven.vercel.app",
       "examapp-mitraricky06-gmailcoms-projects.vercel.app",
       "examapp-git-main-mitraricky06-gmailcoms-projects.vercel.app",
-      "localhost:3000",
     ]);
-    if ((url.protocol === "https:" || url.hostname === "localhost") && allowedHosts.has(url.host)) {
+    if (url.protocol === "https:" && allowedHosts.has(url.host)) {
       return url.origin;
     }
   } catch {
