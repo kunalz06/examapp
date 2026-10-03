@@ -311,7 +311,14 @@ export function ExamRunner({ attemptId, examTitle, expiresAt, initialViolationCo
       Object.values(textSaveTimers.current).forEach((timer) => window.clearTimeout(timer))
       textSaveTimers.current = {}
 
-      const snapshot = answersRef.current
+      const snapshot = { ...answersRef.current }
+      for (const pending of Object.values(readPendingAnswers())) {
+        snapshot[pending.questionId] = {
+          selectedOptionId: pending.selectedOptionId || '',
+          text: pending.text || '',
+        }
+      }
+
       const finalAnswers = questions.map((question) => {
         const current = snapshot[question.id] || { selectedOptionId: '', text: '' }
         return question.type === 'single_choice'
