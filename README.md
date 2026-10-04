@@ -50,14 +50,14 @@ The app includes `/auth/confirm` to verify the token hash and establish the cook
 
 ## Database
 
-Apply `supabase/migrations/0001_exam_app.sql` to a fresh Supabase project. The migration:
+Apply every SQL file in `supabase/migrations/` to a fresh Supabase project in numeric order. The migrations:
 
 - explicitly grants Data API access to authenticated users,
 - enables RLS on every public table,
 - keeps correct answer keys inaccessible to students,
 - adds database-side scoring and proctoring disqualification rules,
 - creates an atomic admin RPC for exam creation,
-- limits student question access and answer writes to the active attempt window plus a 30-second network grace period.
+- limits student question access and answer writes to the active attempt window plus a two-minute recovery/synchronization grace period.
 
 After migration, run Supabase security and performance advisors.
 
