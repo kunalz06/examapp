@@ -37,9 +37,9 @@ export type Database = {
         ]
       }
       exam_attempts: {
-        Row: { id: string; exam_id: string; user_id: string; status: Database['public']['Enums']['attempt_status']; started_at: string; expires_at: string; submitted_at: string | null; disqualified_at: string | null; violation_count: number; auto_score: number; manual_score: number; max_score: number; requires_manual_grading: boolean; created_at: string }
-        Insert: { id?: string; exam_id: string; user_id: string; status?: Database['public']['Enums']['attempt_status']; started_at?: string; expires_at?: string; submitted_at?: string | null; disqualified_at?: string | null; violation_count?: number; auto_score?: number; manual_score?: number; max_score?: number; requires_manual_grading?: boolean; created_at?: string }
-        Update: { id?: string; exam_id?: string; user_id?: string; status?: Database['public']['Enums']['attempt_status']; started_at?: string; expires_at?: string; submitted_at?: string | null; disqualified_at?: string | null; violation_count?: number; auto_score?: number; manual_score?: number; max_score?: number; requires_manual_grading?: boolean; created_at?: string }
+        Row: { id: string; exam_id: string; user_id: string; status: Database['public']['Enums']['attempt_status']; started_at: string; expires_at: string; submitted_at: string | null; disqualified_at: string | null; violation_count: number; face_violation_count: number; auto_score: number; manual_score: number; max_score: number; requires_manual_grading: boolean; created_at: string }
+        Insert: { id?: string; exam_id: string; user_id: string; status?: Database['public']['Enums']['attempt_status']; started_at?: string; expires_at?: string; submitted_at?: string | null; disqualified_at?: string | null; violation_count?: number; face_violation_count?: number; auto_score?: number; manual_score?: number; max_score?: number; requires_manual_grading?: boolean; created_at?: string }
+        Update: { id?: string; exam_id?: string; user_id?: string; status?: Database['public']['Enums']['attempt_status']; started_at?: string; expires_at?: string; submitted_at?: string | null; disqualified_at?: string | null; violation_count?: number; face_violation_count?: number; auto_score?: number; manual_score?: number; max_score?: number; requires_manual_grading?: boolean; created_at?: string }
         Relationships: [
           { foreignKeyName: 'exam_attempts_exam_id_fkey'; columns: ['exam_id']; isOneToOne: false; referencedRelation: 'exams'; referencedColumns: ['id'] },
           { foreignKeyName: 'exam_attempts_user_id_fkey'; columns: ['user_id']; isOneToOne: false; referencedRelation: 'profiles'; referencedColumns: ['id'] }
@@ -84,7 +84,7 @@ export type Database = {
       exam_status: 'draft' | 'published' | 'archived'
       question_type: 'single_choice' | 'short_text'
       attempt_status: 'in_progress' | 'submitted' | 'disqualified' | 'graded'
-      proctor_event_type: 'tab_hidden' | 'fullscreen_exit' | 'media_ended' | 'media_permission_denied' | 'window_blur'
+      proctor_event_type: 'tab_hidden' | 'fullscreen_exit' | 'media_ended' | 'media_permission_denied' | 'window_blur' | 'face_missing_warning' | 'multiple_faces_warning' | 'face_monitor_error'
     }
     CompositeTypes: Record<string, never>
   }
