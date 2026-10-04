@@ -15,7 +15,7 @@ export default async function AttemptPage({ params }: { params: Promise<{ attemp
 
   let { data: attempt } = await supabase
     .from('exam_attempts')
-    .select('id,exam_id,user_id,status,expires_at,violation_count')
+    .select('id,exam_id,user_id,status,expires_at,violation_count,face_violation_count')
     .eq('id', attemptId)
     .eq('user_id', user.id)
     .single()
@@ -27,7 +27,7 @@ export default async function AttemptPage({ params }: { params: Promise<{ attemp
     await supabase.rpc('submit_attempt', { p_attempt_id: attempt.id })
     const { data: refreshed } = await supabase
       .from('exam_attempts')
-      .select('id,exam_id,user_id,status,expires_at,violation_count')
+      .select('id,exam_id,user_id,status,expires_at,violation_count,face_violation_count')
       .eq('id', attemptId)
       .eq('user_id', user.id)
       .single()
@@ -62,6 +62,7 @@ export default async function AttemptPage({ params }: { params: Promise<{ attemp
           examTitle={exam.title}
           expiresAt={attempt.expires_at}
           initialViolationCount={attempt.violation_count}
+          initialFaceViolationCount={attempt.face_violation_count}
           questions={normalized}
           initialAnswers={answers || []}
         />
