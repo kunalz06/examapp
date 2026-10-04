@@ -11,12 +11,13 @@ A Next.js 16 + Supabase examination platform designed for Vercel.
 - Timed attempts with autosaved answers.
 - Camera + microphone presence requirement during active attempts.
 - Browser visibility monitoring with a server-side three-strike disqualification rule.
+- In-browser MediaPipe face-count monitoring: sustained no-face or multiple-face conditions trigger warnings, with a server-authoritative four-warning disqualification rule.
 - Idempotent queued proctoring events to reduce event loss during brief connection failures.
 - Automatic single-choice scoring without exposing answer keys to students.
 - Administrator review and manual scoring of written answers.
 - Candidate, attempt, and proctor-event dashboards.
 - Privacy Policy and Terms starter pages.
-- No camera/microphone recording or upload in this starter.
+- No camera/microphone recording or upload; face detection runs against the live camera locally in the browser.
 
 ## Stack
 
@@ -49,14 +50,14 @@ The app includes `/auth/confirm` to verify the token hash and establish the cook
 
 ## Database
 
-Apply `supabase/migrations/0001_exam_app.sql` to a fresh Supabase project. The migration:
+Apply every SQL file in `supabase/migrations/` to a fresh Supabase project in numeric order. The migrations:
 
 - explicitly grants Data API access to authenticated users,
 - enables RLS on every public table,
 - keeps correct answer keys inaccessible to students,
-- adds database-side scoring and tab-violation disqualification,
+- adds database-side scoring and proctoring disqualification rules,
 - creates an atomic admin RPC for exam creation,
-- limits student question access and answer writes to the active attempt window plus a 30-second network grace period.
+- limits student question access and answer writes to the active attempt window plus a two-minute recovery/synchronization grace period.
 
 After migration, run Supabase security and performance advisors.
 
@@ -89,7 +90,7 @@ Set the two public Supabase environment variables in Development, Preview, and P
 
 ## Important proctoring limitation
 
-A normal web application can detect browser signals such as `visibilitychange`, but it cannot guarantee that a candidate never uses another device, disables JavaScript, modifies a browser, uses virtual devices, or circumvents client-side controls. Treat these events as exam-integrity signals and combine them with institutional procedures for high-stakes examinations.
+A normal web application can detect browser signals such as `visibilitychange` and can estimate visible face counts from a webcam, but neither signal can prove misconduct. Face detection can be affected by lighting, occlusion, camera framing, model error, photographs, or people outside the camera view. The application also cannot guarantee that a candidate never uses another device, disables JavaScript, modifies a browser, uses virtual devices, or circumvents client-side controls. Treat proctoring events as exam-integrity signals and provide an appropriate review or appeal process for high-stakes examinations.
 
 ## Legal review
 

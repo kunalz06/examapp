@@ -16,7 +16,15 @@ export function ExamLaunch({ examId }: { examId: string }) {
     let stream: MediaStream | null = null
 
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: { ideal: 'user' },
+          width: { ideal: 640 },
+          height: { ideal: 480 },
+          frameRate: { ideal: 15, max: 24 },
+        },
+        audio: true,
+      })
       const cameraOk = stream.getVideoTracks().some((track) => track.readyState === 'live')
       const micOk = stream.getAudioTracks().some((track) => track.readyState === 'live')
       if (!cameraOk || !micOk) throw new Error('Both camera and microphone are required.')
@@ -47,7 +55,7 @@ export function ExamLaunch({ examId }: { examId: string }) {
           onChange={(event) => setAcknowledged(event.target.checked)}
         />
         <span>
-          I understand the exam rules and agree to keep camera and microphone access active throughout the attempt.
+          I understand the exam rules and agree to keep camera and microphone access active throughout the attempt. Automated face monitoring requires exactly one candidate to remain visible; sustained no-face or multiple-face detections can trigger warnings and disqualification.
         </span>
       </label>
 

@@ -11,7 +11,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ att
 
   let { data: attempt } = await supabase
     .from('exam_attempts')
-    .select('status,violation_count,expires_at')
+    .select('status,violation_count,face_violation_count,expires_at')
     .eq('id', attemptId)
     .eq('user_id', user.id)
     .single()
@@ -24,7 +24,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ att
     if (!submitError) {
       const { data: refreshed } = await supabase
         .from('exam_attempts')
-        .select('status,violation_count,expires_at')
+        .select('status,violation_count,face_violation_count,expires_at')
         .eq('id', attemptId)
         .eq('user_id', user.id)
         .single()
@@ -35,6 +35,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ att
   return NextResponse.json({
     status: attempt.status,
     violationCount: attempt.violation_count,
+    faceViolationCount: attempt.face_violation_count,
     expiresAt: attempt.expires_at,
   })
 }

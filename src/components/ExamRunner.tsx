@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import type { AttemptStatus, Question } from '@/lib/types'
+import { createBrowserFaceDetector, type BrowserFaceDetector } from '@/lib/faceMonitor'
 
 type SavedAnswer = { question_id: string; selected_option_id: string | null; text_answer: string | null }
 type PendingEvent = { eventId: string; type: string; details: Record<string, unknown> }
@@ -14,20 +15,38 @@ type PendingAnswer = {
 }
 type AnswerValue = { selectedOptionId: string; text: string }
 type SaveState = 'saved' | 'saving' | 'offline' | 'error'
+type FaceWarningType = 'face_missing_warning' | 'multiple_faces_warning'
+type EventDelivery = 'sent' | 'retry' | 'discard'
+type FaceWarning = { type: FaceWarningType; count: number }
+
+const FACE_WARNING_LIMIT = 4
+const FACE_WARNING_WINDOW_MS = 10_000
+const FACE_SAMPLE_INTERVAL_MS = 750
 
 type Props = {
   attemptId: string
   examTitle: string
   expiresAt: string
   initialViolationCount: number
+  initialFaceViolationCount: number
   questions: Question[]
   initialAnswers: SavedAnswer[]
 }
 
-export function ExamRunner({ attemptId, examTitle, expiresAt, initialViolationCount, questions, initialAnswers }: Props) {
+export function ExamRunner({ attemptId, examTitle, expiresAt, initialViolationCount, initialFaceViolationCount, questions, initialAnswers }: Props) {
   const router = useRouter()
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
+  const faceDetectorRef = useRef<BrowserFaceDetector | null>(null)
+  const faceConditionRef = useRef<{ type: FaceWarningType | null; startedAt: number }>({ type: null, startedAt: 0 })
+  const faceWarningTimerRef = useRef<number | null>(null)
+  const faceDetectorErrorCountRef = useRef(0)
+  const faceDetectorErrorReportedRef = useRef(false)
+  const mediaEverReadyRef = useRef(false)
+  const mediaInterruptionRef = useRef(false)
+  const mediaStartingRef = useRef(false)
+  const statusRef = useRef<AttemptStatus>('in_progress')
+  const faceViolationCountRef = useRef(initialFaceViolationCount)
   const submittingRef = useRef(false)
   const textSaveTimers = useRef<Record<string, number>>({})
   const answersRef = useRef<Record<string, AnswerValue>>({})
@@ -37,6 +56,8 @@ export function ExamRunner({ attemptId, examTitle, expiresAt, initialViolationCo
   const [mediaError, setMediaError] = useState('')
   const [connectionError, setConnectionError] = useState('')
   const [violationCount, setViolationCount] = useState(initialViolationCount)
+  const [faceViolationCount, setFaceViolationCount] = useState(initialFaceViolationCount)
+  const [faceWarning, setFaceWarning] = useState<FaceWarning | null>(null)
   const [status, setStatus] = useState<AttemptStatus>('in_progress')
   const [submitting, setSubmitting] = useState(false)
   const [saveState, setSaveState] = useState<SaveState>('saved')
@@ -67,9 +88,20 @@ export function ExamRunner({ attemptId, examTitle, expiresAt, initialViolationCo
     secondsLeftRef.current = secondsLeft
   }, [secondsLeft])
 
+  useEffect(() => {
+    statusRef.current = status
+  }, [status])
+
+  useEffect(() => {
+    faceViolationCountRef.current = faceViolationCount
+  }, [faceViolationCount])
+
   const stopMedia = useCallback(() => {
+    faceDetectorRef.current?.close?.()
+    faceDetectorRef.current = null
     streamRef.current?.getTracks().forEach((track) => track.stop())
     streamRef.current = null
+    faceConditionRef.current = { type: null, startedAt: 0 }
   }, [])
 
   const readPendingAnswers = useCallback((): Record<string, PendingAnswer> => {
@@ -209,7 +241,17 @@ export function ExamRunner({ attemptId, examTitle, expiresAt, initialViolationCo
     }
   }, [eventQueueKey])
 
-  const sendEvent = useCallback(async (event: PendingEvent) => {
+  const showFaceWarning = useCallback((type: FaceWarningType, count: number) => {
+    if (count < 1) return
+    if (faceWarningTimerRef.current) window.clearTimeout(faceWarningTimerRef.current)
+    setFaceWarning({ type, count })
+    faceWarningTimerRef.current = window.setTimeout(() => {
+      setFaceWarning(null)
+      faceWarningTimerRef.current = null
+    }, 8000)
+  }, [])
+
+  const sendEvent = useCallback(async (event: PendingEvent): Promise<EventDelivery> => {
     try {
       const response = await fetch(`/api/attempts/${attemptId}/event`, {
         method: 'POST',
@@ -217,37 +259,65 @@ export function ExamRunner({ attemptId, examTitle, expiresAt, initialViolationCo
         body: JSON.stringify(event),
         keepalive: true,
       })
-      if (!response.ok) throw new Error('event rejected')
-      const data = await response.json()
-      setViolationCount(data.violationCount)
-      setStatus(data.status)
-      return true
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        if (response.status >= 400 && response.status < 500 && response.status !== 408 && response.status !== 429) {
+          return 'discard'
+        }
+        throw new Error('event rejected')
+      }
+
+      const nextStatus = data.status as AttemptStatus
+      statusRef.current = nextStatus
+      setStatus(nextStatus)
+      setViolationCount(Number(data.violationCount) || 0)
+
+      if (typeof data.faceViolationCount === 'number') {
+        faceViolationCountRef.current = data.faceViolationCount
+        setFaceViolationCount(data.faceViolationCount)
+      }
+
+      return 'sent'
     } catch {
-      return false
+      return 'retry'
     }
   }, [attemptId])
 
   const queueEvent = useCallback(async (type: string, details: Record<string, unknown> = {}) => {
+    if (statusRef.current !== 'in_progress') return
+
     const event: PendingEvent = { eventId: crypto.randomUUID(), type, details }
     const queue = [...readEventQueue(), event]
     saveEventQueue(queue)
 
     if (type === 'tab_hidden') setViolationCount((count) => Math.min(3, count + 1))
 
-    const ok = await sendEvent(event)
-    if (ok) saveEventQueue(readEventQueue().filter((item) => item.eventId !== event.eventId))
-  }, [readEventQueue, saveEventQueue, sendEvent])
+    if (type === 'face_missing_warning' || type === 'multiple_faces_warning') {
+      const optimisticCount = Math.min(FACE_WARNING_LIMIT, faceViolationCountRef.current + 1)
+      faceViolationCountRef.current = optimisticCount
+      setFaceViolationCount(optimisticCount)
+      showFaceWarning(type, optimisticCount)
+    }
+
+    const delivery = await sendEvent(event)
+    if (delivery !== 'retry') {
+      saveEventQueue(readEventQueue().filter((item) => item.eventId !== event.eventId))
+    }
+  }, [readEventQueue, saveEventQueue, sendEvent, showFaceWarning])
 
   const flushEventQueue = useCallback(async () => {
     const queue = readEventQueue()
     if (!queue.length) return
 
-    const remaining: PendingEvent[] = []
     for (const event of queue) {
-      const ok = await sendEvent(event)
-      if (!ok) remaining.push(event)
+      if (statusRef.current !== 'in_progress') break
+      const delivery = await sendEvent(event)
+      if (delivery !== 'retry') {
+        saveEventQueue(readEventQueue().filter((item) => item.eventId !== event.eventId))
+      }
     }
-    saveEventQueue(remaining)
+
+    if (statusRef.current !== 'in_progress') saveEventQueue([])
   }, [readEventQueue, saveEventQueue, sendEvent])
 
   const syncStatus = useCallback(async () => {
@@ -256,6 +326,11 @@ export function ExamRunner({ attemptId, examTitle, expiresAt, initialViolationCo
       if (!response.ok) return
       const data = await response.json()
       setViolationCount(data.violationCount)
+      if (typeof data.faceViolationCount === 'number') {
+        faceViolationCountRef.current = data.faceViolationCount
+        setFaceViolationCount(data.faceViolationCount)
+      }
+      statusRef.current = data.status
       setStatus(data.status)
       if (data.status !== 'in_progress') {
         clearPendingAnswers()
@@ -268,30 +343,81 @@ export function ExamRunner({ attemptId, examTitle, expiresAt, initialViolationCo
   }, [attemptId, clearPendingAnswers, router, stopMedia])
 
   const startMedia = useCallback(async () => {
+    mediaStartingRef.current = true
+    mediaInterruptionRef.current = false
+    setMediaReady(false)
     setMediaError('')
     stopMedia()
 
+    let stream: MediaStream
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true })
-      const videoTrack = stream.getVideoTracks()[0]
-      const audioTrack = stream.getAudioTracks()[0]
-      if (!videoTrack || !audioTrack) throw new Error('Both media tracks are required')
-
-      streamRef.current = stream
-      if (videoRef.current) videoRef.current.srcObject = stream
-
-      const ended = () => {
-        setMediaReady(false)
-        setMediaError('Camera or microphone access ended. Restore access to continue.')
-        void queueEvent('media_ended', { track: 'camera_or_microphone' })
-      }
-      videoTrack.addEventListener('ended', ended, { once: true })
-      audioTrack.addEventListener('ended', ended, { once: true })
-      setMediaReady(true)
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: { ideal: 'user' },
+          width: { ideal: 640 },
+          height: { ideal: 480 },
+          frameRate: { ideal: 15, max: 24 },
+        },
+        audio: true,
+      })
     } catch {
-      setMediaReady(false)
+      mediaStartingRef.current = false
+      mediaInterruptionRef.current = mediaEverReadyRef.current
       setMediaError('Camera and microphone permission is required throughout the exam.')
       await queueEvent('media_permission_denied')
+      return
+    }
+
+    const videoTrack = stream.getVideoTracks()[0]
+    const audioTrack = stream.getAudioTracks()[0]
+    if (!videoTrack || !audioTrack) {
+      stream.getTracks().forEach((track) => track.stop())
+      mediaStartingRef.current = false
+      mediaInterruptionRef.current = mediaEverReadyRef.current
+      setMediaError('Both camera and microphone are required throughout the exam.')
+      await queueEvent('media_permission_denied', { reason: 'missing_track' })
+      return
+    }
+
+    streamRef.current = stream
+    if (videoRef.current) {
+      videoRef.current.srcObject = stream
+      await videoRef.current.play().catch(() => undefined)
+    }
+
+    const ended = (track: 'camera' | 'microphone') => {
+      mediaStartingRef.current = false
+      mediaInterruptionRef.current = true
+      setMediaReady(false)
+      faceDetectorRef.current?.close?.()
+      faceDetectorRef.current = null
+      setMediaError('Camera or microphone access ended. Restore access to continue.')
+      void queueEvent('media_ended', { track })
+    }
+    videoTrack.addEventListener('ended', () => ended('camera'), { once: true })
+    audioTrack.addEventListener('ended', () => ended('microphone'), { once: true })
+
+    try {
+      const detector = await createBrowserFaceDetector()
+      if (videoTrack.readyState !== 'live' || audioTrack.readyState !== 'live') {
+        detector.close?.()
+        throw new Error('media ended while face monitor was loading')
+      }
+      faceDetectorRef.current = detector
+      faceDetectorErrorCountRef.current = 0
+      faceDetectorErrorReportedRef.current = false
+      mediaEverReadyRef.current = true
+      mediaStartingRef.current = false
+      mediaInterruptionRef.current = false
+      setMediaReady(true)
+    } catch {
+      stream.getTracks().forEach((track) => track.stop())
+      streamRef.current = null
+      mediaStartingRef.current = false
+      mediaInterruptionRef.current = false
+      setMediaReady(false)
+      setMediaError('Face monitoring could not start. Check your connection and restore access.')
+      await queueEvent('face_monitor_error', { stage: 'initialization' })
     }
   }, [queueEvent, stopMedia])
 
@@ -374,6 +500,8 @@ export function ExamRunner({ attemptId, examTitle, expiresAt, initialViolationCo
   }, [flushAnswers, questions, readPendingAnswers, writePendingAnswers])
 
   useEffect(() => {
+    if (statusRef.current !== 'in_progress') return
+
     void startMedia()
     void flushEventQueue()
 
@@ -400,9 +528,115 @@ export function ExamRunner({ attemptId, examTitle, expiresAt, initialViolationCo
       document.removeEventListener('visibilitychange', onVisibility)
       window.removeEventListener('online', onOnline)
       Object.values(textSaveTimers.current).forEach((timer) => window.clearTimeout(timer))
+      if (faceWarningTimerRef.current) window.clearTimeout(faceWarningTimerRef.current)
       stopMedia()
     }
   }, [flushAnswers, flushEventQueue, queueEvent, startMedia, stopMedia, submit, syncStatus])
+
+  useEffect(() => {
+    if (status !== 'in_progress' || !mediaEverReadyRef.current) return
+
+    let stopped = false
+    let timer: number | null = null
+
+    const resetCondition = () => {
+      faceConditionRef.current = { type: null, startedAt: 0 }
+    }
+
+    const schedule = () => {
+      if (!stopped) timer = window.setTimeout(runDetection, FACE_SAMPLE_INTERVAL_MS)
+    }
+
+    const runDetection = () => {
+      if (stopped || statusRef.current !== 'in_progress') return
+
+      if (document.visibilityState !== 'visible') {
+        resetCondition()
+        schedule()
+        return
+      }
+
+      let warningType: FaceWarningType | null = null
+      let faceCount = 0
+
+      if (mediaStartingRef.current) {
+        resetCondition()
+        schedule()
+        return
+      }
+
+      if (!mediaReady) {
+        if (!mediaInterruptionRef.current) {
+          resetCondition()
+          schedule()
+          return
+        }
+        warningType = 'face_missing_warning'
+      } else {
+        const detector = faceDetectorRef.current
+        const video = videoRef.current
+
+        if (!detector || !video || video.readyState < 2 || !video.videoWidth || !video.videoHeight) {
+          resetCondition()
+          schedule()
+          return
+        }
+
+        try {
+          const result = detector.detectForVideo(video, performance.now())
+          faceCount = result.detections?.length ?? 0
+          faceDetectorErrorCountRef.current = 0
+          faceDetectorErrorReportedRef.current = false
+
+          if (faceCount === 0) warningType = 'face_missing_warning'
+          else if (faceCount > 1) warningType = 'multiple_faces_warning'
+        } catch {
+          faceDetectorErrorCountRef.current += 1
+          resetCondition()
+          if (faceDetectorErrorCountRef.current >= 3 && !faceDetectorErrorReportedRef.current) {
+            faceDetectorErrorReportedRef.current = true
+            void queueEvent('face_monitor_error', { stage: 'inference' })
+          }
+          schedule()
+          return
+        }
+      }
+
+      if (!warningType) {
+        resetCondition()
+        schedule()
+        return
+      }
+
+      const now = Date.now()
+      if (faceConditionRef.current.type !== warningType) {
+        faceConditionRef.current = { type: warningType, startedAt: now }
+      } else if (now - faceConditionRef.current.startedAt >= FACE_WARNING_WINDOW_MS) {
+        faceConditionRef.current = { type: warningType, startedAt: now }
+        void queueEvent(warningType, {
+          faceCount,
+          durationMs: FACE_WARNING_WINDOW_MS,
+          detector: 'mediapipe_blazeface_short_range',
+        })
+      }
+
+      schedule()
+    }
+
+    const onVisibility = () => {
+      if (document.visibilityState !== 'visible') resetCondition()
+    }
+
+    document.addEventListener('visibilitychange', onVisibility)
+    schedule()
+
+    return () => {
+      stopped = true
+      if (timer) window.clearTimeout(timer)
+      document.removeEventListener('visibilitychange', onVisibility)
+      resetCondition()
+    }
+  }, [mediaReady, queueEvent, status])
 
   useEffect(() => {
     const autosave = window.setInterval(() => {
@@ -450,7 +684,7 @@ export function ExamRunner({ attemptId, examTitle, expiresAt, initialViolationCo
         <div className="card blocking-card">
           <span className="badge red">Disqualified</span>
           <h2>This attempt has ended.</h2>
-          <p className="muted">Three tab-switch violations were confirmed.</p>
+          <p className="muted">The configured proctoring violation limit was reached.</p>
         </div>
       </div>
     )
@@ -471,7 +705,7 @@ export function ExamRunner({ attemptId, examTitle, expiresAt, initialViolationCo
           <div className="mobile-timer" aria-label="Time remaining">{time}</div>
         </div>
 
-        {!mediaReady && (
+        {mediaError && (
           <div className="alert">
             <strong>Camera and microphone access is paused.</strong>
             <span>{mediaError}</span>
@@ -480,6 +714,17 @@ export function ExamRunner({ attemptId, examTitle, expiresAt, initialViolationCo
         )}
 
         {connectionError && <div className="alert">{connectionError}</div>}
+
+        {faceWarning && (
+          <div className="alert" role="alert">
+            <strong>Proctoring warning {faceWarning.count} of {FACE_WARNING_LIMIT}</strong>
+            <span>
+              {faceWarning.type === 'face_missing_warning'
+                ? 'No face was detected continuously for more than 10 seconds. Keep your face clearly visible to the camera.'
+                : 'More than one face was detected continuously for more than 10 seconds. Only the candidate may remain in view.'}
+            </span>
+          </div>
+        )}
 
         <div
           className="stack"
@@ -581,7 +826,19 @@ export function ExamRunner({ attemptId, examTitle, expiresAt, initialViolationCo
               <span key={index} className={`violation-dot ${index < violationCount ? 'active' : ''}`} />
             ))}
           </div>
-          <p className="small muted proctor-note">Three confirmed violations end the attempt.</p>
+          <p className="small muted proctor-note">Three confirmed tab violations end the attempt.</p>
+          {faceViolationCount > 0 && (
+            <>
+              <div className="divider" />
+              <div className="small muted">Face-monitor warnings</div>
+              <div className="violation-dots" aria-label={`${faceViolationCount} of ${FACE_WARNING_LIMIT} face-monitor warnings`}>
+                {[0, 1, 2, 3].map((index) => (
+                  <span key={index} className={`violation-dot ${index < faceViolationCount ? 'active' : ''}`} />
+                ))}
+              </div>
+              <p className="small muted proctor-note">Four face-monitor warnings end the attempt.</p>
+            </>
+          )}
         </div>
       </aside>
     </div>

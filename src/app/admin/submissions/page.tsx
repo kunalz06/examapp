@@ -11,7 +11,7 @@ export default async function SubmissionsPage() {
   const [{ data: attempts }, { data: exams }, { data: students }] = await Promise.all([
     supabase
       .from('exam_attempts')
-      .select('id,exam_id,user_id,status,started_at,submitted_at,violation_count,auto_score,manual_score,max_score')
+      .select('id,exam_id,user_id,status,started_at,submitted_at,violation_count,face_violation_count,auto_score,manual_score,max_score')
       .in('status', ['submitted', 'graded', 'disqualified'])
       .order('started_at', { ascending: false }),
     supabase.from('exams').select('id,title'),
@@ -47,7 +47,7 @@ export default async function SubmissionsPage() {
           <div className="table-wrap">
             <table>
               <thead>
-                <tr><th>Student</th><th>Exam</th><th>Submitted</th><th>Status</th><th>Violations</th><th>Grade</th><th></th></tr>
+                <tr><th>Student</th><th>Exam</th><th>Submitted</th><th>Status</th><th>Tab / face</th><th>Grade</th><th></th></tr>
               </thead>
               <tbody>
                 {(attempts || []).map((attempt) => {
@@ -58,7 +58,7 @@ export default async function SubmissionsPage() {
                       <td>{examMap.get(attempt.exam_id) || 'Exam'}</td>
                       <td>{new Date(attempt.submitted_at || attempt.started_at).toLocaleString('en-IN')}</td>
                       <td><span className={attempt.status === 'disqualified' ? 'badge red' : 'badge'}>{attempt.status}</span></td>
-                      <td>{attempt.violation_count}</td>
+                      <td>{attempt.violation_count} / {attempt.face_violation_count}</td>
                       <td>{attempt.status === 'graded' ? `${score} / ${Number(attempt.max_score)}` : attempt.status === 'submitted' ? 'Pending' : '—'}</td>
                       <td><Link className="table-link" href={`/admin/attempts/${attempt.id}`}>Review & mark</Link></td>
                     </tr>

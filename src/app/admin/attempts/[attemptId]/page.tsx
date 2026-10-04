@@ -13,7 +13,7 @@ export default async function ReviewAttemptPage({ params }: { params: Promise<{ 
 
   const { data: attempt } = await supabase
     .from('exam_attempts')
-    .select('id,exam_id,user_id,status,started_at,submitted_at,violation_count,auto_score,manual_score,max_score')
+    .select('id,exam_id,user_id,status,started_at,submitted_at,violation_count,face_violation_count,auto_score,manual_score,max_score')
     .eq('id', attemptId)
     .single()
 
@@ -53,6 +53,7 @@ export default async function ReviewAttemptPage({ params }: { params: Promise<{ 
         <div className="grid grid-4">
           <div className="stat"><b>{totalScore}</b><span className="small muted">score / {Number(attempt.max_score)}</span></div>
           <div className="stat"><b>{attempt.violation_count}</b><span className="small muted">tab violations</span></div>
+          <div className="stat"><b>{attempt.face_violation_count}</b><span className="small muted">face warnings</span></div>
           <div className="stat"><b>{markedCount} / {manualQuestions.length}</b><span className="small muted">written answers marked</span></div>
           <div className="stat"><b>{events?.length || 0}</b><span className="small muted">proctor events</span></div>
         </div>

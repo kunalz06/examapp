@@ -36,7 +36,7 @@ export default async function AdminPage() {
   const [{ data: profiles }, { data: exams }, { data: attempts }] = await Promise.all([
     supabase.from('profiles').select('id,email,display_name,role,provisioned,email_verified,created_at').eq('role', 'student').order('created_at', { ascending: false }),
     supabase.from('exams').select('id,title,status,duration_minutes,created_at').order('created_at', { ascending: false }),
-    supabase.from('exam_attempts').select('id,exam_id,user_id,status,started_at,submitted_at,violation_count,auto_score,manual_score,max_score').in('status', ['submitted', 'graded', 'disqualified']).order('started_at', { ascending: false }),
+    supabase.from('exam_attempts').select('id,exam_id,user_id,status,started_at,submitted_at,violation_count,face_violation_count,auto_score,manual_score,max_score').in('status', ['submitted', 'graded', 'disqualified']).order('started_at', { ascending: false }),
   ])
 
   const examMap = new Map((exams || []).map((exam) => [exam.id, exam.title]))
@@ -103,14 +103,14 @@ export default async function AdminPage() {
           </div>
           <div className="table-wrap">
             <table>
-              <thead><tr><th>Candidate</th><th>Exam</th><th>Status</th><th>Violations</th><th>Grade</th><th></th></tr></thead>
+              <thead><tr><th>Candidate</th><th>Exam</th><th>Status</th><th>Tab / face</th><th>Grade</th><th></th></tr></thead>
               <tbody>
                 {(attempts || []).map((attempt) => (
                   <tr key={attempt.id}>
                     <td>{userMap.get(attempt.user_id) || 'Student'}</td>
                     <td>{examMap.get(attempt.exam_id) || 'Exam'}</td>
                     <td><span className={attempt.status === 'disqualified' ? 'badge red' : 'badge'}>{attempt.status}</span></td>
-                    <td>{attempt.violation_count}</td>
+                    <td>{attempt.violation_count} / {attempt.face_violation_count}</td>
                     <td>{attempt.status === 'graded' ? `${Number(attempt.auto_score) + Number(attempt.manual_score)} / ${Number(attempt.max_score)}` : attempt.status === 'submitted' ? 'Pending' : '—'}</td>
                     <td><Link className="table-link" href={`/admin/attempts/${attempt.id}`}>Review & mark</Link></td>
                   </tr>
