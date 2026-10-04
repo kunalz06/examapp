@@ -9,7 +9,7 @@ export default async function DashboardPage() {
 
   const [{ data: exams }, { data: attempts }] = await Promise.all([
     supabase.from('exams').select('id,title,description,duration_minutes,starts_at,ends_at,status').eq('status', 'published').order('created_at', { ascending: false }),
-    supabase.from('exam_attempts').select('id,exam_id,status,started_at,expires_at,violation_count,auto_score,manual_score,max_score').eq('user_id', user.id).order('started_at', { ascending: false }),
+    supabase.from('exam_attempts').select('id,exam_id,status,started_at,expires_at,violation_count,face_violation_count,auto_score,manual_score,max_score').eq('user_id', user.id).order('started_at', { ascending: false }),
   ])
 
   const attemptByExam = new Map((attempts || []).map((attempt) => [attempt.exam_id, attempt]))
@@ -76,7 +76,7 @@ export default async function DashboardPage() {
           <div className="section-title-row"><div><div className="eyebrow">History</div><h2 className="section-heading">Attempts</h2></div></div>
           <div className="table-wrap">
             <table>
-              <thead><tr><th>Started</th><th>Status</th><th>Violations</th><th>Grade</th><th></th></tr></thead>
+              <thead><tr><th>Started</th><th>Status</th><th>Tab / face</th><th>Grade</th><th></th></tr></thead>
               <tbody>
                 {(attempts || []).map((attempt) => {
                   const score = Number(attempt.auto_score) + Number(attempt.manual_score)
@@ -84,7 +84,7 @@ export default async function DashboardPage() {
                     <tr key={attempt.id}>
                       <td>{new Date(attempt.started_at).toLocaleString('en-IN')}</td>
                       <td><span className={attempt.status === 'disqualified' ? 'badge red' : 'badge'}>{attempt.status}</span></td>
-                      <td>{attempt.violation_count}</td>
+                      <td>{attempt.violation_count} / {attempt.face_violation_count}</td>
                       <td>{attempt.status === 'graded' ? `${score} / ${Number(attempt.max_score)}` : attempt.status === 'submitted' ? 'Pending marking' : '—'}</td>
                       <td><Link className="table-link" href={attempt.status === 'in_progress' ? `/attempt/${attempt.id}` : `/attempt/${attempt.id}/result`}>Open</Link></td>
                     </tr>
