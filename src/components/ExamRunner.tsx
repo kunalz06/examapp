@@ -349,7 +349,15 @@ export function ExamRunner({ attemptId, examTitle, expiresAt, initialViolationCo
 
     let stream: MediaStream
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: { ideal: 'user' },
+          width: { ideal: 640 },
+          height: { ideal: 480 },
+          frameRate: { ideal: 15, max: 24 },
+        },
+        audio: true,
+      })
     } catch {
       mediaStartingRef.current = false
       mediaInterruptionRef.current = mediaEverReadyRef.current
@@ -490,6 +498,8 @@ export function ExamRunner({ attemptId, examTitle, expiresAt, initialViolationCo
   }, [flushAnswers, questions, readPendingAnswers, writePendingAnswers])
 
   useEffect(() => {
+    if (statusRef.current !== 'in_progress') return
+
     void startMedia()
     void flushEventQueue()
 
