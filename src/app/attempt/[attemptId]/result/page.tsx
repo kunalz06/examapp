@@ -35,7 +35,7 @@ export default async function ResultPage({ params }: { params: Promise<{ attempt
 
   const { data: attempt } = await supabase
     .from('exam_attempts')
-    .select('id,exam_id,status,started_at,submitted_at,disqualified_at,violation_count')
+    .select('id,exam_id,status,started_at,submitted_at,disqualified_at,violation_count,face_violation_count')
     .eq('id', attemptId)
     .eq('user_id', user.id)
     .single()
@@ -62,7 +62,7 @@ export default async function ResultPage({ params }: { params: Promise<{ attempt
 
           {attempt.status === 'disqualified' ? (
             <div className="alert">
-              <strong>Attempt disqualified.</strong> Three tab-switch violations were confirmed for this attempt.
+              <strong>Attempt disqualified.</strong> The configured proctoring limit was reached. This attempt recorded {attempt.violation_count} tab violation{attempt.violation_count === 1 ? '' : 's'} and {attempt.face_violation_count} face-monitor warning{attempt.face_violation_count === 1 ? '' : 's'}.
             </div>
           ) : attempt.status === 'submitted' ? (
             <div className="notice section">
@@ -70,10 +70,11 @@ export default async function ResultPage({ params }: { params: Promise<{ attempt
             </div>
           ) : (
             <>
-              <div className="grid grid-3 section">
+              <div className="grid grid-4 section">
                 <div className="stat"><b>{totalScore}</b><span className="small muted">score / {totalPossible}</span></div>
                 <div className="stat"><b>{percentage}%</b><span className="small muted">final grade</span></div>
                 <div className="stat"><b>{attempt.violation_count}</b><span className="small muted">tab violations</span></div>
+                <div className="stat"><b>{attempt.face_violation_count}</b><span className="small muted">face warnings</span></div>
               </div>
               <div className="success section">Grading is complete and released.</div>
 
