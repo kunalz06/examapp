@@ -309,13 +309,15 @@ export function ExamRunner({ attemptId, examTitle, expiresAt, initialViolationCo
     const queue = readEventQueue()
     if (!queue.length) return
 
-    const remaining: PendingEvent[] = []
     for (const event of queue) {
       if (statusRef.current !== 'in_progress') break
       const delivery = await sendEvent(event)
-      if (delivery === 'retry') remaining.push(event)
+      if (delivery !== 'retry') {
+        saveEventQueue(readEventQueue().filter((item) => item.eventId !== event.eventId))
+      }
     }
-    saveEventQueue(statusRef.current === 'in_progress' ? remaining : [])
+
+    if (statusRef.current !== 'in_progress') saveEventQueue([])
   }, [readEventQueue, saveEventQueue, sendEvent])
 
   const syncStatus = useCallback(async () => {
