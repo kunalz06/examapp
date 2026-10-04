@@ -43,6 +43,8 @@ export function ExamRunner({ attemptId, examTitle, expiresAt, initialViolationCo
   const faceDetectorErrorCountRef = useRef(0)
   const faceDetectorErrorReportedRef = useRef(false)
   const mediaEverReadyRef = useRef(false)
+  const mediaInterruptionRef = useRef(false)
+  const mediaStartingRef = useRef(false)
   const statusRef = useRef<AttemptStatus>('in_progress')
   const faceViolationCountRef = useRef(initialFaceViolationCount)
   const submittingRef = useRef(false)
@@ -273,19 +275,13 @@ export function ExamRunner({ attemptId, examTitle, expiresAt, initialViolationCo
       if (typeof data.faceViolationCount === 'number') {
         faceViolationCountRef.current = data.faceViolationCount
         setFaceViolationCount(data.faceViolationCount)
-        if (
-          (event.type === 'face_missing_warning' || event.type === 'multiple_faces_warning')
-          && data.faceViolationCount > 0
-        ) {
-          showFaceWarning(event.type, data.faceViolationCount)
-        }
       }
 
       return 'sent'
     } catch {
       return 'retry'
     }
-  }, [attemptId, showFaceWarning])
+  }, [attemptId])
 
   const queueEvent = useCallback(async (type: string, details: Record<string, unknown> = {}) => {
     if (statusRef.current !== 'in_progress') return
@@ -345,6 +341,8 @@ export function ExamRunner({ attemptId, examTitle, expiresAt, initialViolationCo
   }, [attemptId, clearPendingAnswers, router, stopMedia])
 
   const startMedia = useCallback(async () => {
+    mediaStartingRef.current = true
+    mediaInterruptionRef.current = false
     setMediaReady(false)
     setMediaError('')
     stopMedia()
@@ -353,6 +351,8 @@ export function ExamRunner({ attemptId, examTitle, expiresAt, initialViolationCo
     try {
       stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true })
     } catch {
+      mediaStartingRef.current = false
+      mediaInterruptionRef.current = mediaEverReadyRef.current
       setMediaError('Camera and microphone permission is required throughout the exam.')
       await queueEvent('media_permission_denied')
       return
@@ -362,6 +362,8 @@ export function ExamRunner({ attemptId, examTitle, expiresAt, initialViolationCo
     const audioTrack = stream.getAudioTracks()[0]
     if (!videoTrack || !audioTrack) {
       stream.getTracks().forEach((track) => track.stop())
+      mediaStartingRef.current = false
+      mediaInterruptionRef.current = mediaEverReadyRef.current
       setMediaError('Both camera and microphone are required throughout the exam.')
       await queueEvent('media_permission_denied', { reason: 'missing_track' })
       return
@@ -374,6 +376,8 @@ export function ExamRunner({ attemptId, examTitle, expiresAt, initialViolationCo
     }
 
     const ended = (track: 'camera' | 'microphone') => {
+      mediaStartingRef.current = false
+      mediaInterruptionRef.current = true
       setMediaReady(false)
       faceDetectorRef.current?.close?.()
       faceDetectorRef.current = null
@@ -393,10 +397,14 @@ export function ExamRunner({ attemptId, examTitle, expiresAt, initialViolationCo
       faceDetectorErrorCountRef.current = 0
       faceDetectorErrorReportedRef.current = false
       mediaEverReadyRef.current = true
+      mediaStartingRef.current = false
+      mediaInterruptionRef.current = false
       setMediaReady(true)
     } catch {
       stream.getTracks().forEach((track) => track.stop())
       streamRef.current = null
+      mediaStartingRef.current = false
+      mediaInterruptionRef.current = false
       setMediaReady(false)
       setMediaError('Face monitoring could not start. Check your connection and restore access.')
       await queueEvent('face_monitor_error', { stage: 'initialization' })
@@ -539,7 +547,18 @@ export function ExamRunner({ attemptId, examTitle, expiresAt, initialViolationCo
       let warningType: FaceWarningType | null = null
       let faceCount = 0
 
+      if (mediaStartingRef.current) {
+        resetCondition()
+        schedule()
+        return
+      }
+
       if (!mediaReady) {
+        if (!mediaInterruptionRef.current) {
+          resetCondition()
+          schedule()
+          return
+        }
         warningType = 'face_missing_warning'
       } else {
         const detector = faceDetectorRef.current
@@ -674,7 +693,7 @@ export function ExamRunner({ attemptId, examTitle, expiresAt, initialViolationCo
           <div className="mobile-timer" aria-label="Time remaining">{time}</div>
         </div>
 
-        {!mediaReady && (
+        {mediaError && (
           <div className="alert">
             <strong>Camera and microphone access is paused.</strong>
             <span>{mediaError}</span>
