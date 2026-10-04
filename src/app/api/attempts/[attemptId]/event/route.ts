@@ -10,6 +10,9 @@ const allowedEvents = new Set<ProctorEventType>([
   'media_ended',
   'media_permission_denied',
   'window_blur',
+  'face_missing_warning',
+  'multiple_faces_warning',
+  'face_monitor_error',
 ])
 
 export async function POST(request: Request, { params }: { params: Promise<{ attemptId: string }> }) {
@@ -40,11 +43,11 @@ export async function POST(request: Request, { params }: { params: Promise<{ att
 
   const { data: attempt } = await supabase
     .from('exam_attempts')
-    .select('status,violation_count')
+    .select('status,violation_count,face_violation_count')
     .eq('id', attemptId)
     .eq('user_id', user.id)
     .single()
 
   if (!attempt) return NextResponse.json({ error: 'Attempt not found' }, { status: 404 })
-  return NextResponse.json({ status: attempt.status, violationCount: attempt.violation_count })
+  return NextResponse.json({ status: attempt.status, violationCount: attempt.violation_count, faceViolationCount: attempt.face_violation_count })
 }
