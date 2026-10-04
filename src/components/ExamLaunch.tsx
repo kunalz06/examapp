@@ -47,7 +47,7 @@ export function ExamLaunch({ examId }: { examId: string }) {
           onChange={(event) => setAcknowledged(event.target.checked)}
         />
         <span>
-          I understand the exam rules and agree to keep camera and microphone access active throughout the attempt.
+          I understand the exam rules and agree to keep camera and microphone access active throughout the attempt. Automated face monitoring requires exactly one candidate to remain visible; sustained no-face or multiple-face detections can trigger warnings and disqualification.
         </span>
       </label>
 
