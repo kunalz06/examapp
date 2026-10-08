@@ -1,10 +1,16 @@
 'use client'
 
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { useRouter } from 'next/navigation'
 
 type Student = { id: string; name: string; email: string; verified: boolean; hasAttempt: boolean }
 type Slot = { id: string; startsAt: string; endsAt: string; capacity: number; bookedBy: string[] }
+
+const displayDate = (input: string) => new Intl.DateTimeFormat('en-IN', {
+  timeZone: 'Asia/Kolkata',
+  day: 'numeric', month: 'short', year: 'numeric',
+  hour: 'numeric', minute: '2-digit', hour12: true,
+}).format(new Date(input))
 
 export function ExamScheduleManager({
   examId, durationMinutes, students, assignedIds, slots,
@@ -20,6 +26,8 @@ export function ExamScheduleManager({
   const [busy, setBusy] = useState<'assign' | 'slot' | null>(null)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
+
+  useEffect(() => setSelected(assignedIds), [assignedIds])
 
   const selectedSet = new Set(selected)
 
@@ -133,7 +141,7 @@ export function ExamScheduleManager({
       <section className="card stack">
         <div>
           <h2 className="section-heading">Create an exam slot</h2>
-          <p className="muted small">Times are entered in your device's local time zone. Each slot must last at least {durationMinutes} minutes. Capacity limits are enforced when students book.</p>
+          <p className="muted small">Enter times in your device's local time zone; created slots are displayed in IST. Each slot must last at least {durationMinutes} minutes. Capacity limits are enforced when students book.</p>
         </div>
         <form className="form" onSubmit={(event) => void createSlot(event)}>
           <div className="grid grid-3">
@@ -165,8 +173,8 @@ export function ExamScheduleManager({
               <tbody>
                 {slots.map((slot) => (
                   <tr key={slot.id}>
-                    <td>{new Date(slot.startsAt).toLocaleString()}</td>
-                    <td>{new Date(slot.endsAt).toLocaleString()}</td>
+                    <td>{displayDate(slot.startsAt)}</td>
+                    <td>{displayDate(slot.endsAt)}</td>
                     <td>{slot.bookedBy.length} / {slot.capacity}</td>
                     <td>{slot.bookedBy.length
                       ? slot.bookedBy.map((id) => students.find((s) => s.id === id)?.name || id).join(', ')
