@@ -3,6 +3,24 @@ export type Json = string | number | boolean | null | { [key: string]: Json | un
 export type Database = {
   public: {
     Tables: {
+      exam_assignments: {
+        Row: { exam_id: string; student_id: string; assigned_by: string | null; assigned_at: string }
+        Insert: { exam_id: string; student_id: string; assigned_by?: string | null; assigned_at?: string }
+        Update: { exam_id?: string; student_id?: string; assigned_by?: string | null; assigned_at?: string }
+        Relationships: []
+      }
+      exam_slots: {
+        Row: { id: string; exam_id: string; starts_at: string; ends_at: string; capacity: number; created_by: string | null; created_at: string }
+        Insert: { id?: string; exam_id: string; starts_at: string; ends_at: string; capacity: number; created_by?: string | null; created_at?: string }
+        Update: { id?: string; exam_id?: string; starts_at?: string; ends_at?: string; capacity?: number; created_by?: string | null; created_at?: string }
+        Relationships: []
+      }
+      exam_slot_bookings: {
+        Row: { exam_id: string; student_id: string; slot_id: string; booked_at: string }
+        Insert: { exam_id: string; student_id: string; slot_id: string; booked_at?: string }
+        Update: { exam_id?: string; student_id?: string; slot_id?: string; booked_at?: string }
+        Relationships: []
+      }
       profiles: {
         Row: { id: string; email: string | null; display_name: string | null; role: Database['public']['Enums']['app_role']; provisioned: boolean; email_verified: boolean; email_verified_at: string | null; created_at: string }
         Insert: { id: string; email?: string | null; display_name?: string | null; role?: Database['public']['Enums']['app_role']; provisioned?: boolean; email_verified?: boolean; email_verified_at?: string | null; created_at?: string }
@@ -68,6 +86,10 @@ export type Database = {
     }
     Views: Record<string, never>
     Functions: {
+      admin_set_exam_students: { Args: { p_exam_id: string; p_student_ids: string[] }; Returns: Json }
+      admin_create_exam_slot: { Args: { p_exam_id: string; p_starts_at: string; p_ends_at: string; p_capacity: number }; Returns: string }
+      choose_exam_slot: { Args: { p_exam_id: string; p_slot_id: string }; Returns: Json }
+      get_exam_slots: { Args: { p_exam_id: string }; Returns: Json }
       admin_create_exam: { Args: { p_payload: Json }; Returns: string }
       admin_grade_answer: { Args: { p_attempt_id: string; p_question_id: string; p_score: number; p_feedback?: string }; Returns: Database['public']['Tables']['answers']['Row'] }
       finalize_attempt: { Args: { p_attempt_id: string; p_answers?: Json }; Returns: Database['public']['Tables']['exam_attempts']['Row'] }
