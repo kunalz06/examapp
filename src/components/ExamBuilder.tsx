@@ -57,7 +57,7 @@ export function ExamBuilder() {
       setBusy(false)
       return
     }
-    router.replace('/admin')
+    router.replace('/admin/exams/' + data.examId + '/schedule')
     router.refresh()
   }
 
