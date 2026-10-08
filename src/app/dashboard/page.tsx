@@ -7,10 +7,17 @@ export const metadata: Metadata = { title: 'My exams' }
 export default async function DashboardPage() {
   const { supabase, user, profile } = await requireStudent()
 
-  const [{ data: exams }, { data: attempts }] = await Promise.all([
-    supabase.from('exams').select('id,title,description,duration_minutes,starts_at,ends_at,status').eq('status', 'published').order('created_at', { ascending: false }),
+  const [{ data: assignments }, { data: attempts }] = await Promise.all([
+    supabase.from('exam_assignments').select('exam_id').eq('student_id', user.id),
     supabase.from('exam_attempts').select('id,exam_id,status,started_at,expires_at,violation_count,face_violation_count,auto_score,manual_score,max_score').eq('user_id', user.id).order('started_at', { ascending: false }),
   ])
+  const allottedExamIds = (assignments || []).map((a) => a.exam_id)
+  const { data: exams } = allottedExamIds.length
+    ? await supabase.from('exams')
+      .select('id,title,description,duration_minutes,starts_at,ends_at,status')
+      .in('id', allottedExamIds).eq('status', 'published')
+      .order('created_at', { ascending: false })
+    : { data: [] }
 
   const attemptByExam = new Map((attempts || []).map((attempt) => [attempt.exam_id, attempt]))
   const completedCount = (attempts || []).filter((attempt) => attempt.status !== 'in_progress').length
@@ -30,7 +37,7 @@ export default async function DashboardPage() {
         </div>
 
         <div className="grid grid-3 dashboard-stats">
-          <div className="stat"><b>{exams?.length || 0}</b><span className="small muted">published exams</span></div>
+          <div className="stat"><b>{exams?.length || 0}</b><span className="small muted">allotted exams</span></div>
           <div className="stat"><b>{activeCount}</b><span className="small muted">active attempts</span></div>
           <div className="stat"><b>{completedCount}</b><span className="small muted">completed attempts</span></div>
         </div>
@@ -68,7 +75,7 @@ export default async function DashboardPage() {
                 </article>
               )
             })}
-            {!exams?.length && <div className="empty-state"><h3>No exams available</h3><p className="muted">Published examinations will appear here.</p></div>}
+            {!exams?.length && <div className="empty-state"><h3>No exams available</h3><p className="muted">Your administrator has not allotted any published examinations yet.</p></div>}
           </div>
         </section>
 
