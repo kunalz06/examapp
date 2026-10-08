@@ -86,6 +86,7 @@ export default async function AdminPage() {
                           <option value="draft">Draft</option><option value="published">Published</option><option value="archived">Archived</option>
                         </select>
                         <button className="btn btn-secondary">Update</button>
+                        <Link className="btn btn-primary" href={'/admin/exams/' + exam.id + '/schedule'}>Students & slots</Link>
                       </form>
                     </td>
                   </tr>
