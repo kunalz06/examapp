@@ -1,8 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 
-const PRODUCTION_ORIGIN = 'https://examapp-seven.vercel.app'
-
 export async function POST(_request: Request, { params }: { params: Promise<{ studentId: string }> }) {
   const { studentId } = await params
   const supabase = await createClient()
@@ -24,7 +22,7 @@ export async function POST(_request: Request, { params }: { params: Promise<{ st
       apikey: process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ studentId, redirectOrigin: PRODUCTION_ORIGIN }),
+    body: JSON.stringify({ studentId }),
   })
 
   const payload = await response.json().catch(() => ({ error: 'Password reset service returned an invalid response.' }))
