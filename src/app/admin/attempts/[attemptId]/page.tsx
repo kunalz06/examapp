@@ -19,17 +19,19 @@ export default async function ReviewAttemptPage({ params }: { params: Promise<{ 
 
   if (!attempt) notFound()
 
-  const [{ data: exam }, { data: candidate }, { data: questions }, { data: answers }, { data: events }, { data: keys }] = await Promise.all([
+  const [{ data: exam }, { data: candidate }, { data: questions }, { data: answers }, { data: events }, { data: keys }, { data: evaluatorGuidance }] = await Promise.all([
     supabase.from('exams').select('title').eq('id', attempt.exam_id).single(),
     supabase.from('profiles').select('display_name,email').eq('id', attempt.user_id).single(),
     supabase.from('questions').select('id,prompt,type,points,position,question_options(id,label,position)').eq('exam_id', attempt.exam_id).order('position'),
     supabase.from('answers').select('id,question_id,selected_option_id,text_answer,manual_score,grader_feedback,graded_at').eq('attempt_id', attempt.id),
     supabase.from('proctor_events').select('id,event_type,occurred_at,details').eq('attempt_id', attempt.id).order('occurred_at'),
     supabase.from('question_answer_keys').select('question_id,correct_option_id'),
+    supabase.rpc('admin_get_question_guidance', { p_exam_id: attempt.exam_id }),
   ])
 
   const answerMap = new Map((answers || []).map((answer) => [answer.question_id, answer]))
   const keyMap = new Map((keys || []).map((key) => [key.question_id, key.correct_option_id]))
+  const evaluatorGuideMap = new Map((evaluatorGuidance || []).map((guide) => [guide.question_id, guide.guidance]))
   const totalScore = Number(attempt.auto_score) + Number(attempt.manual_score)
   const manualQuestions = (questions || []).filter((question) => question.type === 'short_text')
   const markedCount = manualQuestions.filter((question) => answerMap.get(question.id)?.manual_score !== null && answerMap.get(question.id)?.manual_score !== undefined).length
@@ -87,6 +89,14 @@ export default async function ReviewAttemptPage({ params }: { params: Promise<{ 
                   <span className="small muted">{Number(question.points)} points</span>
                 </div>
                 <h3>{question.prompt}</h3>
+                {evaluatorGuideMap.get(question.id) && (
+                  <details className="response-box">
+                    <summary><strong>Evaluator reference (admin only)</strong></summary>
+                    <pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', fontFamily: 'inherit', fontSize: '0.9rem' }}>
+                      {evaluatorGuideMap.get(question.id)}
+                    </pre>
+                  </details>
+                )}
 
                 {question.type === 'single_choice' ? (
                   <div className="review-answer-grid">
