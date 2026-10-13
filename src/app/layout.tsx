@@ -2,9 +2,11 @@ import type { Metadata } from 'next'
 import Link from 'next/link'
 import './globals.css'
 import { Header } from '@/components/Header'
+import { SITE_ORIGIN } from '@/lib/site'
 import { SiteChrome } from '@/components/SiteChrome'
 
 export const metadata: Metadata = {
+  metadataBase: new URL(SITE_ORIGIN),
   title: { default: 'ExamCore', template: '%s | ExamCore' },
   description: 'Secure web-based examination portal.',
 }

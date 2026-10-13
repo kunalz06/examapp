@@ -2,6 +2,8 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.117.2";
 import nodemailer from "npm:nodemailer@10.0.13";
 
+const SITE_ORIGIN = "https://btfexamcore.vercel.app";
+
 type Payload = { email?: string; displayName?: string; temporaryPassword?: string };
 type SmtpConfig = { host: string; port: number; secure: boolean; username: string; password: string; from: string };
 
@@ -67,7 +69,7 @@ Email verification code: ${otp}
 
 The verification code expires in 5 minutes. A maximum of two verification emails may be sent in a 5-minute window, with at least 2.5 minutes between sends.
 
-Sign in at https://examapp-seven.vercel.app/login and enter the verification code when prompted.
+Sign in at ${SITE_ORIGIN}/login and enter the verification code when prompted.
 
 For security, change your temporary password after signing in.`,
     html: `<div style="font-family:Arial,sans-serif;line-height:1.6;color:#111">
@@ -79,7 +81,7 @@ For security, change your temporary password after signing in.`,
       <p>Your 5-digit email verification code is:</p>
       <div style="font-size:30px;font-weight:700;letter-spacing:8px;margin:18px 0">${safeOtp}</div>
       <p>This code expires in 5 minutes. Verification emails are limited to two per 5 minutes, with a minimum 2.5-minute gap.</p>
-      <p>Sign in at <strong>examapp-seven.vercel.app/login</strong> and enter this code when prompted.</p>
+      <p>Sign in at <a href="${SITE_ORIGIN}/login">${SITE_ORIGIN}/login</a> and enter this code when prompted.</p>
       <p>For security, change the temporary password after signing in.</p>
     </div>`,
   });

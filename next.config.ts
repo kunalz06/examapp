@@ -11,6 +11,20 @@ const securityHeaders = [
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
+  // Redirect legacy production hostnames to the canonical BTF ExamCore domain.
+  // Keep the path and query string intact, including existing account links.
+  async redirects() {
+    return [
+      'examapp-seven.vercel.app',
+      'examapp-mitraricky06-gmailcoms-projects.vercel.app',
+      'examapp-git-main-mitraricky06-gmailcoms-projects.vercel.app',
+    ].map((host) => ({
+      source: '/:path*',
+      has: [{ type: 'host' as const, value: host }],
+      destination: 'https://btfexamcore.vercel.app/:path*',
+      permanent: true,
+    }))
+  },
   async headers() {
     return [{ source: '/(.*)', headers: securityHeaders }]
   },

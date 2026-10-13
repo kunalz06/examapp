@@ -2,6 +2,8 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.117.2";
 import nodemailer from "npm:nodemailer@10.0.13";
 
+const SITE_ORIGIN = "https://btfexamcore.vercel.app";
+
 type Payload = { action?: "status" | "verify" | "resend"; code?: string };
 type SmtpConfig = { host: string; port: number; secure: boolean; username: string; password: string; from: string };
 
@@ -125,6 +127,8 @@ Your ExamCore email verification code is: ${otp}
 
 The code expires in 5 minutes. Verification emails are limited to two per 5 minutes, with at least 2.5 minutes between sends.
 
+Sign in and enter this code at: ${SITE_ORIGIN}/login
+
 If you did not request this code, contact your examination administrator.`,
       html: `<div style="font-family:Arial,sans-serif;line-height:1.6;color:#111">
         <h2>ExamCore email verification</h2>
@@ -132,6 +136,7 @@ If you did not request this code, contact your examination administrator.`,
         <p>Your 5-digit verification code is:</p>
         <div style="font-size:30px;font-weight:700;letter-spacing:8px;margin:18px 0">${otp}</div>
         <p>The code expires in 5 minutes. Verification emails are limited to two per 5 minutes, with a minimum 2.5-minute gap.</p>
+        <p>Sign in at <a href="${SITE_ORIGIN}/login">${SITE_ORIGIN}/login</a> to enter the code.</p>
       </div>`,
     });
   } catch {
