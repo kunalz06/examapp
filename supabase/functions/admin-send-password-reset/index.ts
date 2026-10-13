@@ -2,7 +2,9 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.117.2";
 import nodemailer from "npm:nodemailer@10.0.13";
 
-type Payload = { studentId?: string; redirectOrigin?: string };
+const SITE_ORIGIN = "https://btfexamcore.vercel.app";
+
+type Payload = { studentId?: string };
 type SmtpConfig = { host: string; port: number; secure: boolean; username: string; password: string; from: string };
 
 function json(body: Record<string, unknown>, status = 200) {
@@ -27,23 +29,6 @@ function escapeHtml(value: string) {
   return value.replace(/[&<>"']/g, (char) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;",
   }[char] ?? char));
-}
-
-function safeAppOrigin(candidate: string) {
-  try {
-    const url = new URL(candidate);
-    const allowedHosts = new Set([
-      "examapp-seven.vercel.app",
-      "examapp-mitraricky06-gmailcoms-projects.vercel.app",
-      "examapp-git-main-mitraricky06-gmailcoms-projects.vercel.app",
-    ]);
-    if (url.protocol === "https:" && allowedHosts.has(url.host)) {
-      return url.origin;
-    }
-  } catch {
-    // fall through
-  }
-  return "https://examapp-seven.vercel.app";
 }
 
 Deno.serve(async (req: Request) => {
@@ -100,7 +85,7 @@ Deno.serve(async (req: Request) => {
     return json({ error: "Password recovery token could not be generated." }, 500);
   }
 
-  const appOrigin = safeAppOrigin(String(payload?.redirectOrigin ?? ""));
+  const appOrigin = SITE_ORIGIN;
   const recoveryUrl = new URL("/auth/recovery", appOrigin);
   recoveryUrl.searchParams.set("token_hash", tokenHash);
   recoveryUrl.searchParams.set("type", "recovery");
