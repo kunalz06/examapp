@@ -99,3 +99,12 @@ A normal web application can detect browser signals such as `visibilitychange` a
 ### Editing an exam
 
 Administrators can open **Admin → Exam management → Edit exam** or **Students & slots → Edit exam & questions**. The editor can update the title, description, duration, exam window, MCQ and written questions, option text, correct choices, marks, question order, and private evaluator guidance. Saves are atomic and validate both MCQ answer keys and compatibility with existing slots. Exams become read-only once any student has started an attempt, preserving questions, grades, and student evidence; create a new exam for a revised version.
+
+## Canonical production domain
+
+The official production site is **https://btfexamcore.vercel.app**.
+The previous `examapp-seven.vercel.app` URL and legacy production aliases redirect (308) to the new hostname, preserving request paths and query strings. All student account invitations, OTP reminders, and administrator-issued password recovery emails use the canonical domain. Preview deployments are not redirected.
+
+In **Supabase Dashboard → Authentication → URL Configuration**, set **Site URL** to `https://btfexamcore.vercel.app`. Add `https://btfexamcore.vercel.app/auth/recovery` and `https://btfexamcore.vercel.app/auth/confirm` to the allowed redirect URL list if your hosted Auth workflows use them; retain necessary legacy redirect URLs temporarily for pre-existing email links. This hosted Auth setting is managed in the Supabase dashboard and is not changed by database migrations or Vercel deployments.
+
+The student onboarding, verification, and administrator password-reset notifications are sent by the Supabase Edge Functions `admin-create-student`, `student-email-verification`, and `admin-send-password-reset`; deploy these functions as well as the Next.js application when changing the domain. SMTP credentials remain in Supabase Vault and must never be stored in this repository.
