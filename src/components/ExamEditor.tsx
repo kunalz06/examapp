@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { useRouter } from 'next/navigation'
 
 type Option = { id: string; label: string; is_correct: boolean }
@@ -53,6 +53,15 @@ export function ExamEditor({ exam, initialQuestions }: {
   const [error, setError] = useState('')
   const [saved, setSaved] = useState(false)
   const [version, setVersion] = useState(exam.updated_at)
+  const [startsAtValue, setStartsAtValue] = useState('')
+  const [endsAtValue, setEndsAtValue] = useState('')
+
+  // datetime-local must be formatted in the browser's time zone to avoid
+  // server/client timezone hydration mismatches and shifted exam windows.
+  useEffect(() => {
+    setStartsAtValue(localDateTime(exam.starts_at))
+    setEndsAtValue(localDateTime(exam.ends_at))
+  }, [exam.starts_at, exam.ends_at])
 
   function changeQuestion(id: string, patch: Partial<EditableQuestion>) {
     setSaved(false)
@@ -181,11 +190,11 @@ export function ExamEditor({ exam, initialQuestions }: {
           </div>
           <div className="field">
             <label htmlFor="edit-exam-start">Exam starts (optional)</label>
-            <input id="edit-exam-start" className="input" name="startsAt" type="datetime-local" defaultValue={localDateTime(exam.starts_at)} />
+            <input id="edit-exam-start" className="input" name="startsAt" type="datetime-local" value={startsAtValue} onChange={(e) => setStartsAtValue(e.target.value)} />
           </div>
           <div className="field">
             <label htmlFor="edit-exam-end">Exam ends (optional)</label>
-            <input id="edit-exam-end" className="input" name="endsAt" type="datetime-local" defaultValue={localDateTime(exam.ends_at)} />
+            <input id="edit-exam-end" className="input" name="endsAt" type="datetime-local" value={endsAtValue} onChange={(e) => setEndsAtValue(e.target.value)} />
           </div>
         </div>
         <p className="muted small">Dates use your device's local time zone. Existing exam slots must still fit the duration and exam window.</p>
