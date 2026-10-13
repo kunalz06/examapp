@@ -95,3 +95,7 @@ A normal web application can detect browser signals such as `visibilitychange` a
 ## Legal review
 
 `/privacy` and `/terms` are implementation-oriented starter text, not jurisdiction-specific legal advice. Add the operating entity, retention periods, lawful basis/consent language, appeal process, accommodation process, and jurisdiction-specific notices before production use.
+
+### Editing an exam
+
+Administrators can open **Admin → Exam management → Edit exam** or **Students & slots → Edit exam & questions**. The editor can update the title, description, duration, exam window, MCQ and written questions, option text, correct choices, marks, question order, and private evaluator guidance. Saves are atomic and validate both MCQ answer keys and compatibility with existing slots. Exams become read-only once any student has started an attempt, preserving questions, grades, and student evidence; create a new exam for a revised version.

@@ -91,6 +91,7 @@ export type Database = {
       choose_exam_slot: { Args: { p_exam_id: string; p_slot_id: string }; Returns: Json }
       get_exam_slots: { Args: { p_exam_id: string }; Returns: Json }
       admin_create_exam: { Args: { p_payload: Json }; Returns: string }
+      admin_update_exam: { Args: { p_exam_id: string; p_payload: Json }; Returns: Json }
       admin_get_question_guidance: { Args: { p_exam_id: string }; Returns: { question_id: string; guidance: string }[] }
       admin_grade_answer: { Args: { p_attempt_id: string; p_question_id: string; p_score: number; p_feedback?: string }; Returns: Database['public']['Tables']['answers']['Row'] }
       finalize_attempt: { Args: { p_attempt_id: string; p_answers?: Json }; Returns: Database['public']['Tables']['exam_attempts']['Row'] }

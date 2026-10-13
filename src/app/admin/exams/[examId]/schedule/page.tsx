@@ -41,7 +41,10 @@ export default async function ExamSchedulePage({ params }: { params: Promise<{ e
             <h1 className="page-title">{exam.title}</h1>
             <p className="muted">Assign students and create the slots they can book. Publish the exam from the Admin overview before students can choose slots.</p>
           </div>
-          <Link className="btn btn-secondary" href="/admin">Back to Admin</Link>
+          <div className="actions">
+            <Link className="btn btn-secondary" href={'/admin/exams/' + exam.id + '/edit'}>Edit exam & questions</Link>
+            <Link className="btn btn-secondary" href="/admin">Back to Admin</Link>
+          </div>
         </div>
         <ExamScheduleManager
           examId={exam.id}
