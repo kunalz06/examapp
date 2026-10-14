@@ -6,11 +6,13 @@ export default function PrivacyPage() {
   return (
     <main><article className="container legal">
       <div className="eyebrow">Privacy</div><h1 style={{ fontSize: 48, marginTop: 8 }}>Privacy Policy</h1>
-      <p>Last updated: October 4, 2026. This starter policy must be reviewed and adapted by the organization operating the examination service before production use.</p>
+      <p>Last updated: October 14, 2026. This starter policy must be reviewed and adapted by the organization operating the examination service before production use.</p>
       <h2>Information we process</h2>
       <p>We process account information, exam responses, scores, attempt timestamps, and exam-integrity events needed to deliver and administer examinations.</p>
       <h2>Camera, microphone, and automated face monitoring</h2>
       <p>During an active exam, the application requests access to your camera and microphone and checks that live media tracks remain available. Camera frames are analyzed in the browser to count visible faces for exam-integrity monitoring. The application does not perform face recognition, identify who a face belongs to, or upload or store camera or microphone recordings. Only proctoring event metadata and warning counts are sent to the exam service. The face-detection runtime is loaded from a third-party content delivery network and may process technical performance or utilization telemetry according to that provider&apos;s terms.</p>
+      <h2>Mobile phone detection</h2>
+      <p>During an active exam, a second on-device object detection model may analyze occasional camera frames to estimate whether a mobile phone is visible. A possible phone detection is reported to administrators only after several positive frames. The event may include a timestamp, detection confidence, and model metadata, but never the image, a screenshot, live video, or audio. These predictions can be wrong and do not automatically disqualify a student. Administrators must review any flagged event fairly.</p>
       <h2>Browser activity signals</h2>
       <p>During an exam, the application uses browser visibility events to detect when the exam page becomes hidden. It stores the event time, attempt identifier, event type, and limited technical details. The application may also record when camera or microphone access is denied or ends.</p>
       <h2>Automated exam rules</h2>
