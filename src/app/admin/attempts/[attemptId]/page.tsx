@@ -32,6 +32,7 @@ export default async function ReviewAttemptPage({ params }: { params: Promise<{ 
   const answerMap = new Map((answers || []).map((answer) => [answer.question_id, answer]))
   const keyMap = new Map((keys || []).map((key) => [key.question_id, key.correct_option_id]))
   const evaluatorGuideMap = new Map((evaluatorGuidance || []).map((guide) => [guide.question_id, guide.guidance]))
+  const phoneIncidents = (events || []).filter((event) => event.event_type === 'phone_detected')
   const totalScore = Number(attempt.auto_score) + Number(attempt.manual_score)
   const manualQuestions = (questions || []).filter((question) => question.type === 'short_text')
   const markedCount = manualQuestions.filter((question) => answerMap.get(question.id)?.manual_score !== null && answerMap.get(question.id)?.manual_score !== undefined).length
@@ -58,6 +59,7 @@ export default async function ReviewAttemptPage({ params }: { params: Promise<{ 
           <div className="stat"><b>{attempt.face_violation_count}</b><span className="small muted">face warnings</span></div>
           <div className="stat"><b>{markedCount} / {manualQuestions.length}</b><span className="small muted">written answers marked</span></div>
           <div className="stat"><b>{events?.length || 0}</b><span className="small muted">proctor events</span></div>
+          <div className="stat"><b>{phoneIncidents.length}</b><span className="small muted">possible phone sightings · review only</span></div>
         </div>
 
         {!canGrade && attempt.status === 'in_progress' && (
@@ -148,6 +150,12 @@ export default async function ReviewAttemptPage({ params }: { params: Promise<{ 
         </section>
 
         <section className="section">
+          {phoneIncidents.length > 0 && (
+            <div className="notice" style={{ marginBottom: 16 }}>
+              <strong>{phoneIncidents.length} possible mobile phone sighting{phoneIncidents.length === 1 ? '' : 's'}.</strong>
+              {' '}These are automatic predictions requiring human review. They do not independently establish an exam violation or trigger disqualification.
+            </div>
+          )}
           <div className="section-title-row">
             <div>
               <div className="eyebrow">Audit</div>
