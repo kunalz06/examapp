@@ -13,6 +13,8 @@ const allowedEvents = new Set<ProctorEventType>([
   'face_missing_warning',
   'multiple_faces_warning',
   'face_monitor_error',
+  'phone_detected',
+  'phone_monitor_error',
 ])
 
 export async function POST(request: Request, { params }: { params: Promise<{ attemptId: string }> }) {

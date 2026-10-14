@@ -108,7 +108,7 @@ export type Database = {
       exam_status: 'draft' | 'published' | 'archived'
       question_type: 'single_choice' | 'short_text'
       attempt_status: 'in_progress' | 'submitted' | 'disqualified' | 'graded'
-      proctor_event_type: 'tab_hidden' | 'fullscreen_exit' | 'media_ended' | 'media_permission_denied' | 'window_blur' | 'face_missing_warning' | 'multiple_faces_warning' | 'face_monitor_error'
+      proctor_event_type: 'tab_hidden' | 'fullscreen_exit' | 'media_ended' | 'media_permission_denied' | 'window_blur' | 'face_missing_warning' | 'multiple_faces_warning' | 'face_monitor_error' | 'phone_detected' | 'phone_monitor_error'
     }
     CompositeTypes: Record<string, never>
   }
