@@ -55,6 +55,7 @@ export default async function AdminPage() {
           </div>
           <div className="actions">
             <Link className="btn btn-secondary" href="/admin/submissions">All submissions</Link>
+            <Link className="btn btn-secondary" href="/admin/monitor">Exam monitor</Link>
             <Link className="btn btn-primary" href="/admin/exams/new">Create exam</Link>
           </div>
         </div>
