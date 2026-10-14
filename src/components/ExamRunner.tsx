@@ -3,7 +3,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import type { AttemptStatus, Question } from '@/lib/types'
-import { createBrowserFaceDetector, type BrowserFaceDetector } from '@/lib/faceMonitor'
+import {
+  createBrowserFaceDetector,
+  createBrowserPhoneDetector,
+  type BrowserFaceDetector,
+  type BrowserPhoneDetector,
+} from '@/lib/faceMonitor'
+import {
+  initialPhoneObservation,
+  observePhoneFrame,
+  PHONE_SAMPLE_INTERVAL_MS,
+} from '@/lib/phoneDetection'
 
 type SavedAnswer = { question_id: string; selected_option_id: string | null; text_answer: string | null }
 type PendingEvent = { eventId: string; type: string; details: Record<string, unknown> }
@@ -38,6 +48,10 @@ export function ExamRunner({ attemptId, examTitle, expiresAt, initialViolationCo
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const faceDetectorRef = useRef<BrowserFaceDetector | null>(null)
+  const phoneDetectorRef = useRef<BrowserPhoneDetector | null>(null)
+  const phoneObservationRef = useRef(initialPhoneObservation())
+  const phoneMonitorGenerationRef = useRef(0)
+  const phoneAlertTimerRef = useRef<number | null>(null)
   const faceConditionRef = useRef<{ type: FaceWarningType | null; startedAt: number }>({ type: null, startedAt: 0 })
   const faceWarningTimerRef = useRef<number | null>(null)
   const faceDetectorErrorCountRef = useRef(0)
@@ -58,6 +72,8 @@ export function ExamRunner({ attemptId, examTitle, expiresAt, initialViolationCo
   const [violationCount, setViolationCount] = useState(initialViolationCount)
   const [faceViolationCount, setFaceViolationCount] = useState(initialFaceViolationCount)
   const [faceWarning, setFaceWarning] = useState<FaceWarning | null>(null)
+  const [phoneMonitorStatus, setPhoneMonitorStatus] = useState<'loading' | 'active' | 'unavailable'>('loading')
+  const [phoneAlert, setPhoneAlert] = useState(false)
   const [status, setStatus] = useState<AttemptStatus>('in_progress')
   const [submitting, setSubmitting] = useState(false)
   const [saveState, setSaveState] = useState<SaveState>('saved')
@@ -97,6 +113,10 @@ export function ExamRunner({ attemptId, examTitle, expiresAt, initialViolationCo
   }, [faceViolationCount])
 
   const stopMedia = useCallback(() => {
+    ++phoneMonitorGenerationRef.current
+    phoneDetectorRef.current?.close?.()
+    phoneDetectorRef.current = null
+    phoneObservationRef.current = initialPhoneObservation()
     faceDetectorRef.current?.close?.()
     faceDetectorRef.current = null
     streamRef.current?.getTracks().forEach((track) => track.stop())
@@ -347,6 +367,8 @@ export function ExamRunner({ attemptId, examTitle, expiresAt, initialViolationCo
     mediaInterruptionRef.current = false
     setMediaReady(false)
     setMediaError('')
+    setPhoneMonitorStatus('loading')
+    setPhoneAlert(false)
     stopMedia()
 
     let stream: MediaStream
@@ -391,6 +413,10 @@ export function ExamRunner({ attemptId, examTitle, expiresAt, initialViolationCo
       setMediaReady(false)
       faceDetectorRef.current?.close?.()
       faceDetectorRef.current = null
+      ++phoneMonitorGenerationRef.current
+      phoneDetectorRef.current?.close?.()
+      phoneDetectorRef.current = null
+      phoneObservationRef.current = initialPhoneObservation()
       setMediaError('Camera or microphone access ended. Restore access to continue.')
       void queueEvent('media_ended', { track })
     }
@@ -529,6 +555,7 @@ export function ExamRunner({ attemptId, examTitle, expiresAt, initialViolationCo
       window.removeEventListener('online', onOnline)
       Object.values(textSaveTimers.current).forEach((timer) => window.clearTimeout(timer))
       if (faceWarningTimerRef.current) window.clearTimeout(faceWarningTimerRef.current)
+      if (phoneAlertTimerRef.current) window.clearTimeout(phoneAlertTimerRef.current)
       stopMedia()
     }
   }, [flushAnswers, flushEventQueue, queueEvent, startMedia, stopMedia, submit, syncStatus])
@@ -638,6 +665,102 @@ export function ExamRunner({ attemptId, examTitle, expiresAt, initialViolationCo
     }
   }, [mediaReady, queueEvent, status])
 
+  // This monitor is additive: a slow/failed object model never blocks the
+  // exam, face checks, answer saves, or submission. No frames leave the device.
+  useEffect(() => {
+    if (!mediaReady || status !== 'in_progress') return
+
+    let cancelled = false
+    let timer: number | null = null
+    let lastVideoTime = -1
+    const generation = phoneMonitorGenerationRef.current
+    setPhoneMonitorStatus('loading')
+    phoneObservationRef.current = initialPhoneObservation()
+
+    const schedule = () => {
+      if (!cancelled) timer = window.setTimeout(samplePhone, PHONE_SAMPLE_INTERVAL_MS)
+    }
+
+    const samplePhone = () => {
+      if (cancelled || statusRef.current !== 'in_progress') return
+      const detector = phoneDetectorRef.current
+      const video = videoRef.current
+      if (!detector || !video || video.readyState < 2 || document.visibilityState !== 'visible' ||
+          !video.videoWidth || !video.videoHeight || mediaStartingRef.current) {
+        // Hidden or missing frames cannot create a phone sighting.
+        phoneObservationRef.current = initialPhoneObservation()
+        schedule()
+        return
+      }
+      if (lastVideoTime === video.currentTime) {
+        schedule()
+        return
+      }
+      lastVideoTime = video.currentTime
+
+      try {
+        const result = detector.detectForVideo(video, performance.now())
+        const scores = (result.detections || []).flatMap((detection) =>
+          (detection.categories || [])
+            .filter((category) => category.categoryName?.toLowerCase() === 'cell phone')
+            .map((category) => category.score ?? 0),
+        )
+        const highestScore = scores.length ? Math.max(...scores) : null
+        const observation = observePhoneFrame(phoneObservationRef.current, highestScore, Date.now())
+        phoneObservationRef.current = observation.state
+
+        if (observation.alert) {
+          setPhoneAlert(true)
+          if (phoneAlertTimerRef.current) window.clearTimeout(phoneAlertTimerRef.current)
+          phoneAlertTimerRef.current = window.setTimeout(() => {
+            setPhoneAlert(false)
+            phoneAlertTimerRef.current = null
+          }, 8000)
+          void queueEvent('phone_detected', {
+            confidence: Number(observation.confidence.toFixed(3)),
+            positiveFrames: observation.positiveFrames,
+            observationMs: observation.observationMs,
+            model: 'mediapipe_efficientdet_lite0_coco',
+            reviewRequired: true,
+          })
+        }
+      } catch {
+        phoneDetectorRef.current?.close?.()
+        phoneDetectorRef.current = null
+        setPhoneMonitorStatus('unavailable')
+        void queueEvent('phone_monitor_error', { stage: 'inference' })
+        return
+      }
+      schedule()
+    }
+
+    void createBrowserPhoneDetector()
+      .then((detector) => {
+        if (cancelled || generation !== phoneMonitorGenerationRef.current ||
+            statusRef.current !== 'in_progress') {
+          detector.close?.()
+          return
+        }
+        phoneDetectorRef.current = detector
+        setPhoneMonitorStatus('active')
+        schedule()
+      })
+      .catch(() => {
+        if (!cancelled && generation === phoneMonitorGenerationRef.current) {
+          setPhoneMonitorStatus('unavailable')
+          void queueEvent('phone_monitor_error', { stage: 'initialization' })
+        }
+      })
+
+    return () => {
+      cancelled = true
+      if (timer !== null) window.clearTimeout(timer)
+      phoneDetectorRef.current?.close?.()
+      phoneDetectorRef.current = null
+      phoneObservationRef.current = initialPhoneObservation()
+    }
+  }, [mediaReady, queueEvent, status])
+
   useEffect(() => {
     const autosave = window.setInterval(() => {
       void flushAnswers()
@@ -714,6 +837,13 @@ export function ExamRunner({ attemptId, examTitle, expiresAt, initialViolationCo
         )}
 
         {connectionError && <div className="alert">{connectionError}</div>}
+
+        {phoneAlert && (
+          <div className="alert" role="alert">
+            <strong>Possible mobile phone detected</strong>
+            <span>Camera analysis flagged a possible phone for administrator review. A detection is not proof of misconduct and does not automatically end your exam.</span>
+          </div>
+        )}
 
         {faceWarning && (
           <div className="alert" role="alert">
@@ -819,6 +949,13 @@ export function ExamRunner({ attemptId, examTitle, expiresAt, initialViolationCo
             <span className={mediaReady ? 'badge' : 'badge red'}>{mediaReady ? 'Active' : 'Paused'}</span>
           </div>
           <video ref={videoRef} className="camera" autoPlay muted playsInline />
+          <p className="small muted proctor-note">
+            Phone check: {mediaReady ? (
+              phoneMonitorStatus === 'active' ? 'On-device detection active' :
+                phoneMonitorStatus === 'loading' ? 'Loading object model…' :
+                  'Unavailable (face monitoring remains active)'
+            ) : 'Waiting for camera'}
+          </p>
           <div className="divider" />
           <div className="small muted">Tab violations</div>
           <div className="violation-dots" aria-label={`${violationCount} of 3 violations`}>
