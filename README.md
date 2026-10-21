@@ -12,6 +12,8 @@ A Next.js 16 + Supabase examination platform designed for Vercel.
 - Camera + microphone presence requirement during active attempts.
 - Browser visibility monitoring with a server-side three-strike disqualification rule.
 - In-browser MediaPipe face-count monitoring: sustained no-face or multiple-face conditions trigger warnings, with a server-authoritative four-warning disqualification rule.
+- MediaPipe EfficientDet-Lite0 mobile-phone detection, sampled on-device and confirmed across three positive frames; likely phone sightings are logged for human review, not automatic disqualification.
+- Admin-only /admin/monitor page auto-refreshes active exam states and potential phone events every 15 seconds (metadata only; no livestreaming).
 - Idempotent queued proctoring events to reduce event loss during brief connection failures.
 - Automatic single-choice scoring without exposing answer keys to students.
 - Administrator review and manual scoring of written answers.
@@ -87,6 +89,14 @@ Commit the generated `package-lock.json` before production deployment.
 ## Vercel
 
 Set the two public Supabase environment variables in Development, Preview, and Production. Deploy the repository as a Next.js project.
+
+## Phone monitoring rollout (feature branch)
+
+Do not merge this branch or deploy to production until the DB migration `supabase/migrations/20261014125100_phone_monitor_events.sql` is applied to the intended environment. The new event types `phone_detected` and `phone_monitor_error` are required by the API and database. No change is made to existing face-warning disqualification logic.
+
+The model is loaded on demand from the official Google MediaPipe-hosted EfficientDet-Lite0 COCO checkpoint. It may need several seconds and roughly 14 MB of model download, and detection can be slow on phones/tablets. Face monitoring, autosave and submission remain functional even if phone detection fails. A confirmed possible sighting requires at least three phone-class positives at 55% or higher confidence within eight seconds. A continuous sighting generates only one flag, with a 60-second minimum cooldown after it clears. The browser does not upload camera frames or audio.
+
+Run `npm run typecheck`, `npm run build`, and `node --experimental-strip-types --test tests/phoneDetection.test.mjs` during review. Manually test webcams on multiple supported devices, offline/reconnect, low light, and misleading phone-like objects. Check `/admin/monitor` and per-attempt reviews as admin. Have a human review all flags before applying any action. Review Privacy and Terms text before rollout.
 
 ## Important proctoring limitation
 

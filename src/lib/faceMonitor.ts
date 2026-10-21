@@ -5,6 +5,13 @@ export type BrowserFaceDetector = {
   close?: () => void
 }
 
+export type BrowserPhoneDetector = {
+  detectForVideo: (source: HTMLVideoElement, timestampMs: number) => {
+    detections?: Array<{ categories?: Array<{ categoryName?: string; score?: number }> }>
+  }
+  close?: () => void
+}
+
 type VisionModule = {
   FilesetResolver: {
     forVisionTasks: (wasmRoot: string) => Promise<unknown>
@@ -19,6 +26,18 @@ type VisionModule = {
         minSuppressionThreshold: number
       },
     ) => Promise<BrowserFaceDetector>
+  }
+  ObjectDetector: {
+    createFromOptions: (
+      fileset: unknown,
+      options: {
+        baseOptions: { modelAssetPath: string }
+        runningMode: 'VIDEO'
+        scoreThreshold: number
+        categoryAllowlist: string[]
+        maxResults: number
+      },
+    ) => Promise<BrowserPhoneDetector>
   }
 }
 
@@ -101,5 +120,24 @@ export async function createBrowserFaceDetector(): Promise<BrowserFaceDetector> 
     runningMode: 'VIDEO',
     minDetectionConfidence: 0.6,
     minSuppressionThreshold: 0.3,
+  })
+}
+
+/**
+ * EfficientDet-Lite0 is an 80-class COCO object detector. The allowlist
+ * limits its results to the COCO "cell phone" class; detections are
+ * processed locally and only confirmed event metadata is uploaded.
+ */
+export async function createBrowserPhoneDetector(): Promise<BrowserPhoneDetector> {
+  const visionModule = await loadVisionModule()
+  const fileset = await visionModule.FilesetResolver.forVisionTasks(WASM_ROOT)
+  return visionModule.ObjectDetector.createFromOptions(fileset, {
+    baseOptions: {
+      modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/float32/1/efficientdet_lite0.tflite',
+    },
+    runningMode: 'VIDEO',
+    scoreThreshold: 0.55,
+    categoryAllowlist: ['cell phone'],
+    maxResults: 4,
   })
 }
